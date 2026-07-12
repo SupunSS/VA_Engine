@@ -10,5 +10,9 @@ find_package(glm CONFIG REQUIRED)
 add_executable(engine 
     src/main.cpp
     src/core/Log.cpp
+    src/core/memory/StackAllocator.cpp
+    src/core/memory/PoolAllocator.cpp
+    src/core/jobs/JobSystem.cpp
 )
-target_link_libraries(engine PRIVATE glfw glm::glm)
+find_package(Threads REQUIRED)
+target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads)
