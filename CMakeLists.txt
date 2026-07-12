@@ -16,6 +16,7 @@ add_executable(engine
     src/core/memory/PoolAllocator.cpp
     src/core/jobs/JobSystem.cpp
     src/rendering/Shader.cpp
+    src/rendering/Camera.cpp
 )
 
 target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad)

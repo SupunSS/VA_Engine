@@ -8,6 +8,8 @@
 #include <atomic>
 #include <chrono>
 #include "rendering/Shader.h"
+#include "rendering/Camera.h"
+#include <glm/glm.hpp>
 
 int main() {
     Log::Info("Engine starting up...");
@@ -47,7 +49,6 @@ int main() {
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    // No GLFW_OPENGL_PROFILE hint — matches GLAD's compatibility profile build
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "VA Engine", nullptr, nullptr);
     ENGINE_ASSERT(window != nullptr, "Failed to create GLFW window");
@@ -57,42 +58,140 @@ int main() {
     Log::Info("OpenGL loaded: {}", (const char*)glGetString(GL_VERSION));
 
     int width, height;
-glfwGetFramebufferSize(window, &width, &height);
-glViewport(0, 0, width, height);
+    glfwGetFramebufferSize(window, &width, &height);
+    glViewport(0, 0, width, height);
+    glEnable(GL_DEPTH_TEST);
 
     float vertices[] = {
-    -0.5f, -0.5f, 0.0f,
-     0.5f, -0.5f, 0.0f,
-     0.0f,  0.5f, 0.0f
+    // positions          
+    -0.5f, -0.5f, -0.5f,
+     0.5f, -0.5f, -0.5f,
+     0.5f,  0.5f, -0.5f,
+     0.5f,  0.5f, -0.5f,
+    -0.5f,  0.5f, -0.5f,
+    -0.5f, -0.5f, -0.5f,
+
+    -0.5f, -0.5f,  0.5f,
+     0.5f, -0.5f,  0.5f,
+     0.5f,  0.5f,  0.5f,
+     0.5f,  0.5f,  0.5f,
+    -0.5f,  0.5f,  0.5f,
+    -0.5f, -0.5f,  0.5f,
+
+    -0.5f,  0.5f,  0.5f,
+    -0.5f,  0.5f, -0.5f,
+    -0.5f, -0.5f, -0.5f,
+    -0.5f, -0.5f, -0.5f,
+    -0.5f, -0.5f,  0.5f,
+    -0.5f,  0.5f,  0.5f,
+
+     0.5f,  0.5f,  0.5f,
+     0.5f,  0.5f, -0.5f,
+     0.5f, -0.5f, -0.5f,
+     0.5f, -0.5f, -0.5f,
+     0.5f, -0.5f,  0.5f,
+     0.5f,  0.5f,  0.5f,
+
+    -0.5f, -0.5f, -0.5f,
+     0.5f, -0.5f, -0.5f,
+     0.5f, -0.5f,  0.5f,
+     0.5f, -0.5f,  0.5f,
+    -0.5f, -0.5f,  0.5f,
+    -0.5f, -0.5f, -0.5f,
+
+    -0.5f,  0.5f, -0.5f,
+     0.5f,  0.5f, -0.5f,
+     0.5f,  0.5f,  0.5f,
+     0.5f,  0.5f,  0.5f,
+    -0.5f,  0.5f,  0.5f,
+    -0.5f,  0.5f, -0.5f
 };
 
-unsigned int VAO, VBO;
-glGenVertexArrays(1, &VAO);
-glGenBuffers(1, &VBO);
+    unsigned int VAO, VBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
 
-glBindVertexArray(VAO);
-glBindBuffer(GL_ARRAY_BUFFER, VBO);
-glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
 
-Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
+    Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
+
+    Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+    float lastFrameTime = 0.0f;
+
+    
+    glfwSetWindowUserPointer(window, &camera);
+
+    glfwSetCursorPosCallback(window, [](GLFWwindow* win, double xpos, double ypos) {
+    static float lastX = 640.0f, lastY = 360.0f;
+    static bool firstMouse = true;
+    Camera* cam = static_cast<Camera*>(glfwGetWindowUserPointer(win));
+
+    if (glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) != GLFW_PRESS) {
+        firstMouse = true; // reset so there's no jump when you click again
+        return;
+    }
+
+    if (firstMouse) {
+        lastX = (float)xpos;
+        lastY = (float)ypos;
+        firstMouse = false;
+    }
+
+    float xOffset = (float)xpos - lastX;
+    float yOffset = lastY - (float)ypos;
+    lastX = (float)xpos;
+    lastY = (float)ypos;
+
+    cam->ProcessMouseMovement(xOffset, yOffset);
+});
+
+glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (action == GLFW_PRESS)
+            glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        else if (action == GLFW_RELEASE)
+            glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    }
+});
 
     Log::Info("Window created successfully");
 
     while (!glfwWindowShouldClose(window)) {
-    glfwPollEvents();
+        float currentTime = (float)glfwGetTime();
+        float deltaTime = currentTime - lastFrameTime;
+        lastFrameTime = currentTime;
 
-    glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+        glfwPollEvents();
 
-    triangleShader.Bind();
-    glBindVertexArray(VAO);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+        bool w = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+        bool s = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
+        bool a = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
+        bool d = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+        camera.ProcessKeyboard(w, s, a, d, deltaTime);
 
-    glfwSwapBuffers(window);
-}
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+            glfwSetWindowShouldClose(window, true);
+
+        glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+triangleShader.Bind();
+
+glm::mat4 model = glm::mat4(1.0f);
+triangleShader.SetMat4("uModel", model);
+triangleShader.SetMat4("uView", camera.GetViewMatrix());
+triangleShader.SetMat4("uProjection", camera.GetProjectionMatrix(1280.0f / 720.0f));
+
+glBindVertexArray(VAO);
+glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        glfwSwapBuffers(window);
+    }
 
     glfwDestroyWindow(window);
     glfwTerminate();

@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <glm/glm.hpp>
 
 class Shader {
 public:
@@ -9,6 +10,8 @@ public:
     void Bind() const;
 
     unsigned int GetID() const { return m_programID; }
+    
+    void SetMat4(const std::string& name, const glm::mat4& matrix) const;
 
 private:
     unsigned int Compile(unsigned int type, const std::string& source);
