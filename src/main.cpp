@@ -9,6 +9,8 @@
 #include <chrono>
 #include "rendering/Shader.h"
 #include "rendering/Camera.h"
+#include "rendering/Texture.h"
+#include "rendering/Model.h"
 #include <glm/glm.hpp>
 
 int main() {
@@ -62,102 +64,47 @@ int main() {
     glViewport(0, 0, width, height);
     glEnable(GL_DEPTH_TEST);
 
-    float vertices[] = {
-    // positions          
-    -0.5f, -0.5f, -0.5f,
-     0.5f, -0.5f, -0.5f,
-     0.5f,  0.5f, -0.5f,
-     0.5f,  0.5f, -0.5f,
-    -0.5f,  0.5f, -0.5f,
-    -0.5f, -0.5f, -0.5f,
-
-    -0.5f, -0.5f,  0.5f,
-     0.5f, -0.5f,  0.5f,
-     0.5f,  0.5f,  0.5f,
-     0.5f,  0.5f,  0.5f,
-    -0.5f,  0.5f,  0.5f,
-    -0.5f, -0.5f,  0.5f,
-
-    -0.5f,  0.5f,  0.5f,
-    -0.5f,  0.5f, -0.5f,
-    -0.5f, -0.5f, -0.5f,
-    -0.5f, -0.5f, -0.5f,
-    -0.5f, -0.5f,  0.5f,
-    -0.5f,  0.5f,  0.5f,
-
-     0.5f,  0.5f,  0.5f,
-     0.5f,  0.5f, -0.5f,
-     0.5f, -0.5f, -0.5f,
-     0.5f, -0.5f, -0.5f,
-     0.5f, -0.5f,  0.5f,
-     0.5f,  0.5f,  0.5f,
-
-    -0.5f, -0.5f, -0.5f,
-     0.5f, -0.5f, -0.5f,
-     0.5f, -0.5f,  0.5f,
-     0.5f, -0.5f,  0.5f,
-    -0.5f, -0.5f,  0.5f,
-    -0.5f, -0.5f, -0.5f,
-
-    -0.5f,  0.5f, -0.5f,
-     0.5f,  0.5f, -0.5f,
-     0.5f,  0.5f,  0.5f,
-     0.5f,  0.5f,  0.5f,
-    -0.5f,  0.5f,  0.5f,
-    -0.5f,  0.5f, -0.5f
-};
-
-    unsigned int VAO, VBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-
-    glBindVertexArray(VAO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
     Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
+    Texture cubeTexture("textures/test.png");
+    Model testModel("models/test.obj");
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
     float lastFrameTime = 0.0f;
 
-    
     glfwSetWindowUserPointer(window, &camera);
 
     glfwSetCursorPosCallback(window, [](GLFWwindow* win, double xpos, double ypos) {
-    static float lastX = 640.0f, lastY = 360.0f;
-    static bool firstMouse = true;
-    Camera* cam = static_cast<Camera*>(glfwGetWindowUserPointer(win));
+        static float lastX = 640.0f, lastY = 360.0f;
+        static bool firstMouse = true;
+        Camera* cam = static_cast<Camera*>(glfwGetWindowUserPointer(win));
 
-    if (glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) != GLFW_PRESS) {
-        firstMouse = true; // reset so there's no jump when you click again
-        return;
-    }
+        if (glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) != GLFW_PRESS) {
+            firstMouse = true;
+            return;
+        }
 
-    if (firstMouse) {
+        if (firstMouse) {
+            lastX = (float)xpos;
+            lastY = (float)ypos;
+            firstMouse = false;
+        }
+
+        float xOffset = (float)xpos - lastX;
+        float yOffset = lastY - (float)ypos;
         lastX = (float)xpos;
         lastY = (float)ypos;
-        firstMouse = false;
-    }
 
-    float xOffset = (float)xpos - lastX;
-    float yOffset = lastY - (float)ypos;
-    lastX = (float)xpos;
-    lastY = (float)ypos;
+        cam->ProcessMouseMovement(xOffset, yOffset);
+    });
 
-    cam->ProcessMouseMovement(xOffset, yOffset);
-});
-
-glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int mods) {
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (action == GLFW_PRESS)
-            glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-        else if (action == GLFW_RELEASE)
-            glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-    }
-});
+    glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int mods) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
+            if (action == GLFW_PRESS)
+                glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            else if (action == GLFW_RELEASE)
+                glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+    });
 
     Log::Info("Window created successfully");
 
@@ -178,17 +125,23 @@ glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, i
             glfwSetWindowShouldClose(window, true);
 
         glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
-glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-triangleShader.Bind();
+        triangleShader.Bind();
 
-glm::mat4 model = glm::mat4(1.0f);
-triangleShader.SetMat4("uModel", model);
-triangleShader.SetMat4("uView", camera.GetViewMatrix());
-triangleShader.SetMat4("uProjection", camera.GetProjectionMatrix(1280.0f / 720.0f));
+        glm::mat4 model = glm::mat4(1.0f);
+        triangleShader.SetMat4("uModel", model);
+        triangleShader.SetMat4("uView", camera.GetViewMatrix());
+        triangleShader.SetMat4("uProjection", camera.GetProjectionMatrix(1280.0f / 720.0f));
 
-glBindVertexArray(VAO);
-glDrawArrays(GL_TRIANGLES, 0, 36);
+        triangleShader.SetVec3("uViewPos", camera.Position);
+        triangleShader.SetVec3("uDirLightDirection", glm::vec3(-0.3f, -1.0f, -0.3f));
+        triangleShader.SetVec3("uDirLightColor", glm::vec3(0.6f, 0.6f, 0.55f));
+        triangleShader.SetVec3("uPointLightPos", glm::vec3(1.5f, 1.5f, 1.5f));
+        triangleShader.SetVec3("uPointLightColor", glm::vec3(1.0f, 0.8f, 0.5f));
+
+        cubeTexture.Bind(0);
+        testModel.Draw();
 
         glfwSwapBuffers(window);
     }
