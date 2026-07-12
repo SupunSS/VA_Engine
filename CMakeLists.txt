@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(glad CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 add_executable(engine 
     src/main.cpp
@@ -13,6 +15,7 @@ add_executable(engine
     src/core/memory/StackAllocator.cpp
     src/core/memory/PoolAllocator.cpp
     src/core/jobs/JobSystem.cpp
+    src/rendering/Shader.cpp
 )
-find_package(Threads REQUIRED)
-target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads)
+
+target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad)
