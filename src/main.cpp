@@ -12,6 +12,9 @@
 #include "rendering/Texture.h"
 #include "rendering/Model.h"
 #include <glm/glm.hpp>
+#include "scene/Scene.h"
+#include "scene/Components.h"
+#include "scene/SpatialGrid.h"
 
 int main() {
     Log::Info("Engine starting up...");
@@ -66,7 +69,19 @@ int main() {
 
     Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
     Texture cubeTexture("textures/test.png");
-    Model testModel("models/test.obj");
+
+    Scene scene;
+SpatialGrid spatialGrid(50.0f);
+
+auto sharedModel = std::make_shared<Model>("models/test.obj");
+
+for (int i = 0; i < 50; ++i) {
+    auto entity = scene.CreateEntity();
+    float x = static_cast<float>((i % 10) * 4 - 18);
+    float z = static_cast<float>((i / 10) * 4 - 8);
+    scene.Registry.get<Transform>(entity).Position = glm::vec3(x, 0.0f, z);
+    scene.Registry.emplace<MeshRenderer>(entity, sharedModel);
+}
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
     float lastFrameTime = 0.0f;
@@ -129,8 +144,6 @@ int main() {
 
         triangleShader.Bind();
 
-        glm::mat4 model = glm::mat4(1.0f);
-        triangleShader.SetMat4("uModel", model);
         triangleShader.SetMat4("uView", camera.GetViewMatrix());
         triangleShader.SetMat4("uProjection", camera.GetProjectionMatrix(1280.0f / 720.0f));
 
@@ -141,9 +154,30 @@ int main() {
         triangleShader.SetVec3("uPointLightColor", glm::vec3(1.0f, 0.8f, 0.5f));
 
         cubeTexture.Bind(0);
-        testModel.Draw();
 
-        glfwSwapBuffers(window);
+spatialGrid.Clear();
+auto posView = scene.Registry.view<Transform>();
+for (auto entity : posView) {
+    spatialGrid.Insert(entity, posView.get<Transform>(entity).Position);
+}
+
+static float queryTimer = 0.0f;
+queryTimer += deltaTime;
+if (queryTimer > 2.0f) {
+    queryTimer = 0.0f;
+    auto nearby = spatialGrid.QueryRadius(camera.Position, 20.0f);
+    Log::Info("Spatial query: {} entities within 20 units of camera", nearby.size());
+}
+
+auto view = scene.Registry.view<Transform, MeshRenderer>();
+for (auto entity : view) {
+    auto [transform, renderer] = view.get<Transform, MeshRenderer>(entity);
+    glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
+    triangleShader.SetMat4("uModel", worldMatrix);
+    renderer.ModelRef->Draw();
+}
+
+glfwSwapBuffers(window);
     }
 
     glfwDestroyWindow(window);
