@@ -11,6 +11,7 @@ find_package(Threads REQUIRED)
 find_package(Stb REQUIRED)
 find_package(assimp CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 add_executable(engine 
     src/main.cpp
@@ -26,10 +27,11 @@ add_executable(engine
     src/scene/Components.cpp
     src/scene/Scene.cpp
     src/scene/SpatialGrid.cpp
+    src/scene/SceneLoader.cpp
 )
 
 target_include_directories(engine PRIVATE
     ${PROJECT_SOURCE_DIR}/src
     ${Stb_INCLUDE_DIR}
 )
-target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT)
+target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT nlohmann_json::nlohmann_json)

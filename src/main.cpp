@@ -15,6 +15,7 @@
 #include "scene/Scene.h"
 #include "scene/Components.h"
 #include "scene/SpatialGrid.h"
+#include "scene/SceneLoader.h"
 
 int main() {
     Log::Info("Engine starting up...");
@@ -73,15 +74,7 @@ int main() {
     Scene scene;
 SpatialGrid spatialGrid(50.0f);
 
-auto sharedModel = std::make_shared<Model>("models/test.obj");
-
-for (int i = 0; i < 50; ++i) {
-    auto entity = scene.CreateEntity();
-    float x = static_cast<float>((i % 10) * 4 - 18);
-    float z = static_cast<float>((i / 10) * 4 - 8);
-    scene.Registry.get<Transform>(entity).Position = glm::vec3(x, 0.0f, z);
-    scene.Registry.emplace<MeshRenderer>(entity, sharedModel);
-}
+SceneLoader::LoadFromFile("scenes/test_scene.json", scene);
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
     float lastFrameTime = 0.0f;
