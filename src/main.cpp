@@ -97,9 +97,10 @@ int main() {
     struct WindowUserData {
     Camera* camera;
     float* aspectRatio;
+    EditorUI* editorUI;
 };
 
-WindowUserData userData{ &camera, &aspectRatio };
+WindowUserData userData{ &camera, &aspectRatio, &editorUI };
 glfwSetWindowUserPointer(window, &userData);
 
     glfwSetCursorPosCallback(window, [](GLFWwindow* win, double xpos, double ypos) {
@@ -176,6 +177,13 @@ glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
     }
 });
 
+glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
+    auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
+    if (userData != nullptr && userData->editorUI != nullptr) {
+        userData->editorUI->QueueDroppedFiles(count, paths);
+    }
+});
+
     Log::Info("Window created successfully");
 
     while (!glfwWindowShouldClose(window)) {
@@ -213,8 +221,6 @@ glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
         triangleShader.SetVec3("uPointLightPos", glm::vec3(1.5f, 1.5f, 1.5f));
         triangleShader.SetVec3("uPointLightColor", glm::vec3(1.0f, 0.8f, 0.5f));
 
-        cubeTexture.Bind(0);
-
         spatialGrid.Clear();
         auto posView = scene.Registry.view<Transform>();
         for (auto entity : posView) {
@@ -239,6 +245,11 @@ glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
             auto [transform, renderer] = view.get<Transform, MeshRenderer>(entity);
             glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
             triangleShader.SetMat4("uModel", worldMatrix);
+            if (renderer.TextureRef) {
+                renderer.TextureRef->Bind(0);
+            } else {
+                cubeTexture.Bind(0);
+            }
             renderer.ModelRef->Draw();
         }
 
@@ -246,7 +257,7 @@ glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
         editorUI.DrawMenuBar();
         editorUI.DrawSceneHierarchy(scene);
         editorUI.DrawInspector(scene);
-        editorUI.DrawAssetBrowser();
+        editorUI.DrawAssetBrowser(scene);
         editorUI.DrawViewportSettings(camera, gridRenderer);
         editorUI.Render();
 

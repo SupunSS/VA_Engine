@@ -9,6 +9,17 @@
 
 std::unordered_map<std::string, std::shared_ptr<Model>> SceneLoader::s_modelCache;
 
+std::shared_ptr<Model> SceneLoader::GetOrLoadModel(const std::string& path) {
+    auto it = s_modelCache.find(path);
+    if (it != s_modelCache.end()) {
+        return it->second;
+    }
+
+    auto model = std::make_shared<Model>(path);
+    s_modelCache[path] = model;
+    return model;
+}
+
 void SceneLoader::LoadFromFile(const std::string& path, Scene& scene) {
     std::ifstream file(path);
     ENGINE_ASSERT(file.is_open(), "Failed to open scene file");
@@ -21,16 +32,12 @@ void SceneLoader::LoadFromFile(const std::string& path, Scene& scene) {
         std::string modelPath = entry["model"];
         auto pos = entry["position"];
 
-        // Reuse Model if we've already loaded this path — avoids re-uploading
-        // identical GPU data for every instance of the same asset.
-        if (s_modelCache.find(modelPath) == s_modelCache.end()) {
-            s_modelCache[modelPath] = std::make_shared<Model>(modelPath);
-        }
+        auto model = GetOrLoadModel(modelPath);
 
         auto entity = scene.CreateEntity();
-        scene.Registry.get<Transform>(entity).Position = 
+        scene.Registry.get<Transform>(entity).Position =
             glm::vec3(pos[0].get<float>(), pos[1].get<float>(), pos[2].get<float>());
-        scene.Registry.emplace<MeshRenderer>(entity, s_modelCache[modelPath]);
+        scene.Registry.emplace<MeshRenderer>(entity, model);
 
         count++;
     }
@@ -53,14 +60,12 @@ void SceneLoader::LoadChunk(const std::string& path, Scene& scene, int chunkX, i
         std::string modelPath = entry["model"];
         auto pos = entry["position"];
 
-        if (s_modelCache.find(modelPath) == s_modelCache.end()) {
-            s_modelCache[modelPath] = std::make_shared<Model>(modelPath);
-        }
+        auto model = GetOrLoadModel(modelPath);
 
         auto entity = scene.CreateEntity();
         scene.Registry.get<Transform>(entity).Position =
             glm::vec3(pos[0].get<float>(), pos[1].get<float>(), pos[2].get<float>());
-        scene.Registry.emplace<MeshRenderer>(entity, s_modelCache[modelPath]);
+        scene.Registry.emplace<MeshRenderer>(entity, model);
         scene.Registry.emplace<ChunkId>(entity, ChunkId{ chunkX, chunkZ });
 
         count++;

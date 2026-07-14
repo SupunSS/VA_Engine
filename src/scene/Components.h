@@ -3,6 +3,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <entt/entt.hpp>
 #include <memory>
+#include <utility>
 
 // Every entity that exists in the world has this. Cheap by design —
 // static props (streetlights, trash cans) never touch anything beyond this.
@@ -19,8 +20,16 @@ struct Transform {
 };
 
 class Model; // forward declare from rendering
+class Texture; // forward declare from rendering
 struct MeshRenderer {
     std::shared_ptr<Model> ModelRef;
+    std::shared_ptr<Texture> TextureRef;
+
+    MeshRenderer() = default;
+    explicit MeshRenderer(std::shared_ptr<Model> model)
+        : ModelRef(std::move(model)) {}
+    MeshRenderer(std::shared_ptr<Model> model, std::shared_ptr<Texture> texture)
+        : ModelRef(std::move(model)), TextureRef(std::move(texture)) {}
 };
 
 struct ChunkId {
