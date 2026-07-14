@@ -11,11 +11,12 @@
 #include "rendering/Camera.h"
 #include "rendering/Texture.h"
 #include "rendering/Model.h"
-#include <glm/glm.hpp>
 #include "scene/Scene.h"
 #include "scene/Components.h"
 #include "scene/SpatialGrid.h"
 #include "scene/SceneLoader.h"
+#include "scripting/ScriptEngine.h"
+#include <glm/glm.hpp>
 
 int main() {
     Log::Info("Engine starting up...");
@@ -72,9 +73,13 @@ int main() {
     Texture cubeTexture("textures/test.png");
 
     Scene scene;
-SpatialGrid spatialGrid(50.0f);
+    SpatialGrid spatialGrid(50.0f);
 
-SceneLoader::LoadFromFile("scenes/test_scene.json", scene);
+    SceneLoader::LoadFromFile("scenes/test_scene.json", scene);
+
+    ScriptEngine scriptEngine;
+    scriptEngine.Initialize(&scene);
+    scriptEngine.RunScript("scripts/test.lua");
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
     float lastFrameTime = 0.0f;
@@ -148,29 +153,32 @@ SceneLoader::LoadFromFile("scenes/test_scene.json", scene);
 
         cubeTexture.Bind(0);
 
-spatialGrid.Clear();
-auto posView = scene.Registry.view<Transform>();
-for (auto entity : posView) {
-    spatialGrid.Insert(entity, posView.get<Transform>(entity).Position);
-}
+        spatialGrid.Clear();
+        auto posView = scene.Registry.view<Transform>();
+        for (auto entity : posView) {
+            spatialGrid.Insert(entity, posView.get<Transform>(entity).Position);
+        }
 
-static float queryTimer = 0.0f;
-queryTimer += deltaTime;
-if (queryTimer > 2.0f) {
-    queryTimer = 0.0f;
-    auto nearby = spatialGrid.QueryRadius(camera.Position, 20.0f);
-    Log::Info("Spatial query: {} entities within 20 units of camera", nearby.size());
-}
+        scriptEngine.CallUpdate(deltaTime);
+        scriptEngine.CheckForReload(deltaTime);
 
-auto view = scene.Registry.view<Transform, MeshRenderer>();
-for (auto entity : view) {
-    auto [transform, renderer] = view.get<Transform, MeshRenderer>(entity);
-    glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
-    triangleShader.SetMat4("uModel", worldMatrix);
-    renderer.ModelRef->Draw();
-}
+        static float queryTimer = 0.0f;
+        queryTimer += deltaTime;
+        if (queryTimer > 2.0f) {
+            queryTimer = 0.0f;
+            auto nearby = spatialGrid.QueryRadius(camera.Position, 20.0f);
+            Log::Info("Spatial query: {} entities within 20 units of camera", nearby.size());
+        }
 
-glfwSwapBuffers(window);
+        auto view = scene.Registry.view<Transform, MeshRenderer>();
+        for (auto entity : view) {
+            auto [transform, renderer] = view.get<Transform, MeshRenderer>(entity);
+            glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
+            triangleShader.SetMat4("uModel", worldMatrix);
+            renderer.ModelRef->Draw();
+        }
+
+        glfwSwapBuffers(window);
     }
 
     glfwDestroyWindow(window);
