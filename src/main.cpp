@@ -18,6 +18,8 @@
 #include "scripting/ScriptEngine.h"
 #include <glm/glm.hpp>
 #include "scene/ChunkManager.h"
+#include "editor/EditorUI.h"
+#include <imgui.h>
 
 int main() {
     Log::Info("Engine starting up...");
@@ -63,6 +65,8 @@ int main() {
 
     glfwMakeContextCurrent(window);
     ENGINE_ASSERT(gladLoadGLLoader((GLADloadproc)glfwGetProcAddress), "Failed to initialize GLAD");
+    EditorUI editorUI;
+    editorUI.Initialize(window);
     Log::Info("OpenGL loaded: {}", (const char*)glGetString(GL_VERSION));
 
     int width, height;
@@ -88,37 +92,53 @@ int main() {
     glfwSetWindowUserPointer(window, &camera);
 
     glfwSetCursorPosCallback(window, [](GLFWwindow* win, double xpos, double ypos) {
-        static float lastX = 640.0f, lastY = 360.0f;
-        static bool firstMouse = true;
-        Camera* cam = static_cast<Camera*>(glfwGetWindowUserPointer(win));
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent((float)xpos, (float)ypos);
 
-        if (glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) != GLFW_PRESS) {
-            firstMouse = true;
-            return;
-        }
+    if (io.WantCaptureMouse) return;
 
-        if (firstMouse) {
-            lastX = (float)xpos;
-            lastY = (float)ypos;
-            firstMouse = false;
-        }
+    static float lastX = 640.0f, lastY = 360.0f;
+    static bool firstMouse = true;
+    Camera* cam = static_cast<Camera*>(glfwGetWindowUserPointer(win));
 
-        float xOffset = (float)xpos - lastX;
-        float yOffset = lastY - (float)ypos;
+    if (glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) != GLFW_PRESS) {
+        firstMouse = true;
+        return;
+    }
+
+    if (firstMouse) {
         lastX = (float)xpos;
         lastY = (float)ypos;
+        firstMouse = false;
+    }
 
-        cam->ProcessMouseMovement(xOffset, yOffset);
-    });
+    float xOffset = (float)xpos - lastX;
+    float yOffset = lastY - (float)ypos;
+    lastX = (float)xpos;
+    lastY = (float)ypos;
 
-    glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int mods) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT) {
-            if (action == GLFW_PRESS)
-                glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            else if (action == GLFW_RELEASE)
-                glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-        }
-    });
+    cam->ProcessMouseMovement(xOffset, yOffset);
+});
+
+glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int mods) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMouseButtonEvent(button, action == GLFW_PRESS);
+
+    if (io.WantCaptureMouse) return;
+
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (action == GLFW_PRESS)
+            glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        else if (action == GLFW_RELEASE)
+            glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    }
+});
+
+glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
+    if (!focused) {
+        glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    }
+});
 
     Log::Info("Window created successfully");
 
@@ -181,10 +201,17 @@ int main() {
             renderer.ModelRef->Draw();
         }
 
+        editorUI.BeginFrame();
+        editorUI.DrawSceneHierarchy(scene);
+        editorUI.DrawInspector(scene);
+        editorUI.DrawAssetBrowser();
+        editorUI.Render();
+
         glfwSwapBuffers(window);
     }
 
     glfwDestroyWindow(window);
+    editorUI.Shutdown();
     glfwTerminate();
 
     Log::Info("Engine shut down cleanly");
