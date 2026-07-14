@@ -4,6 +4,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <filesystem>
+#include <unordered_set>
 
 void EditorUI::Initialize(GLFWwindow* window) {
     IMGUI_CHECKVERSION();
@@ -36,8 +37,22 @@ void EditorUI::Render() {
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
+void EditorUI::DrawMenuBar() {
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("Window")) {
+            ImGui::MenuItem("Scene Hierarchy", nullptr, &ShowSceneHierarchy);
+            ImGui::MenuItem("Inspector", nullptr, &ShowInspector);
+            ImGui::MenuItem("Asset Browser", nullptr, &ShowAssetBrowser);
+            ImGui::MenuItem("Viewport Settings", nullptr, &ShowViewportSettings);
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+    }
+}
+
 void EditorUI::DrawSceneHierarchy(Scene& scene) {
-    ImGui::Begin("Scene Hierarchy");
+    if (!ShowSceneHierarchy) return;
+    ImGui::Begin("Scene Hierarchy", &ShowSceneHierarchy);
 
     auto view = scene.Registry.view<Transform>();
     for (auto entity : view) {
@@ -53,7 +68,8 @@ void EditorUI::DrawSceneHierarchy(Scene& scene) {
 }
 
 void EditorUI::DrawInspector(Scene& scene) {
-    ImGui::Begin("Inspector");
+    if (!ShowInspector) return;
+    ImGui::Begin("Inspector", &ShowInspector);
 
     if (SelectedEntity != entt::null && scene.Registry.valid(SelectedEntity)) {
         if (scene.Registry.all_of<Transform>(SelectedEntity)) {
@@ -80,9 +96,24 @@ void EditorUI::DrawInspector(Scene& scene) {
 }
 
 void EditorUI::DrawAssetBrowser() {
-    ImGui::Begin("Asset Browser");
+    if (!ShowAssetBrowser) return;
+    ImGui::Begin("Asset Browser", &ShowAssetBrowser);
 
     static std::string currentPath = ".";
+
+    // Folders that belong to the engine/build/toolchain, never real assets.
+    static const std::unordered_set<std::string> hiddenDirs = {
+        "src", "build", "vcpkg", ".git", ".vs", "cmake-build-debug", "cmake-build-release"
+    };
+
+    // Only files with these extensions count as "assets" worth showing.
+    static const std::unordered_set<std::string> assetExtensions = {
+        ".obj", ".fbx", ".gltf", ".glb",           // models
+        ".png", ".jpg", ".jpeg", ".tga", ".hdr",   // textures
+        ".json",                                    // scenes
+        ".lua",                                      // scripts
+        ".vert", ".frag", ".glsl"                   // shaders
+    };
 
     if (ImGui::Button("Up")) {
         std::filesystem::path p(currentPath);
@@ -96,15 +127,37 @@ void EditorUI::DrawAssetBrowser() {
     if (std::filesystem::exists(currentPath)) {
         for (const auto& entry : std::filesystem::directory_iterator(currentPath)) {
             std::string name = entry.path().filename().string();
+
+            if (!name.empty() && name[0] == '.') continue;
+
             if (entry.is_directory()) {
+                if (hiddenDirs.count(name)) continue;
                 if (ImGui::Selectable(("[DIR] " + name).c_str())) {
                     currentPath = entry.path().string();
                 }
             } else {
+                std::string ext = entry.path().extension().string();
+                if (!assetExtensions.count(ext)) continue;
                 ImGui::Text("      %s", name.c_str());
             }
         }
     }
+
+    ImGui::End();
+}
+
+void EditorUI::DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer) {
+    if (!ShowViewportSettings) return;
+    ImGui::Begin("Viewport Settings", &ShowViewportSettings);
+
+    float speed = camera.GetMoveSpeed();
+    if (ImGui::SliderFloat("Camera Speed", &speed, 0.5f, 50.0f, "%.1f")) {
+        camera.SetMoveSpeed(speed);
+    }
+    ImGui::TextDisabled("Ctrl + Scroll to adjust in viewport");
+
+    ImGui::Separator();
+    ImGui::Checkbox("Show Grid", &gridRenderer.Visible);
 
     ImGui::End();
 }

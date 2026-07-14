@@ -11,6 +11,11 @@ public:
     void ProcessKeyboard(bool forward, bool backward, bool left, bool right, float deltaTime);
     void ProcessMouseMovement(float xOffset, float yOffset);
 
+    // Speed control — public so both ImGui and the scroll callback can drive it.
+    float GetMoveSpeed() const { return m_moveSpeed; }
+    void SetMoveSpeed(float speed);
+    void AdjustMoveSpeed(float delta); // relative change, used by ctrl+scroll
+
     glm::vec3 Position;
 
 private:
@@ -27,4 +32,8 @@ private:
     float m_moveSpeed = 3.0f;
     float m_mouseSensitivity = 0.1f;
     float m_fov = 60.0f;
+
+    // Clamp range for scroll/UI adjustment — tune to taste.
+    static constexpr float kMinMoveSpeed = 0.5f;
+    static constexpr float kMaxMoveSpeed = 50.0f;
 };

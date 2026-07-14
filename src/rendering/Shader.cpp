@@ -85,3 +85,9 @@ std::string Shader::ReadFile(const std::string& path)
     buffer << file.rdbuf();
     return buffer.str();
 }
+
+void Shader::SetFloat(const std::string& name, float value) const
+{
+    int location = glGetUniformLocation(m_programID, name.c_str());
+    glUniform1f(location, value);
+}

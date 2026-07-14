@@ -13,6 +13,7 @@ public:
     
     void SetMat4(const std::string& name, const glm::mat4& matrix) const;
     void SetVec3(const std::string& name, const glm::vec3& value) const;
+    void SetFloat(const std::string& name, float value) const;
 
 private:
     unsigned int Compile(unsigned int type, const std::string& source);

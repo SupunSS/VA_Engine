@@ -20,6 +20,7 @@
 #include "scene/ChunkManager.h"
 #include "editor/EditorUI.h"
 #include <imgui.h>
+#include "rendering/GridRenderer.h"
 
 int main() {
     Log::Info("Engine starting up...");
@@ -59,6 +60,7 @@ int main() {
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+    glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "VA Engine", nullptr, nullptr);
     ENGINE_ASSERT(window != nullptr, "Failed to create GLFW window");
@@ -74,6 +76,8 @@ int main() {
     glViewport(0, 0, width, height);
     glEnable(GL_DEPTH_TEST);
 
+    float aspectRatio = (float)width / (float)height;
+
     Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
     Texture cubeTexture("textures/test.png");
 
@@ -87,9 +91,16 @@ int main() {
     scriptEngine.RunScript("scripts/test.lua");
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+    GridRenderer gridRenderer;
     float lastFrameTime = 0.0f;
 
-    glfwSetWindowUserPointer(window, &camera);
+    struct WindowUserData {
+    Camera* camera;
+    float* aspectRatio;
+};
+
+WindowUserData userData{ &camera, &aspectRatio };
+glfwSetWindowUserPointer(window, &userData);
 
     glfwSetCursorPosCallback(window, [](GLFWwindow* win, double xpos, double ypos) {
     ImGuiIO& io = ImGui::GetIO();
@@ -99,7 +110,8 @@ int main() {
 
     static float lastX = 640.0f, lastY = 360.0f;
     static bool firstMouse = true;
-    Camera* cam = static_cast<Camera*>(glfwGetWindowUserPointer(win));
+    auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
+    Camera* cam = userData->camera;
 
     if (glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) != GLFW_PRESS) {
         firstMouse = true;
@@ -134,6 +146,30 @@ glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, i
     }
 });
 
+glfwSetScrollCallback(window, [](GLFWwindow* win, double xoffset, double yoffset) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMouseWheelEvent((float)xoffset, (float)yoffset);
+
+    if (io.WantCaptureMouse) return;
+
+    bool ctrlHeld = glfwGetKey(win, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                    glfwGetKey(win, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+
+    if (ctrlHeld) {
+        auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
+        float increment = (float)yoffset * userData->camera->GetMoveSpeed() * 0.1f;
+        userData->camera->AdjustMoveSpeed(increment);
+    }
+});
+
+glfwSetFramebufferSizeCallback(window, [](GLFWwindow* win, int newWidth, int newHeight) {
+    if (newHeight == 0) return;
+    glViewport(0, 0, newWidth, newHeight);
+
+    auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
+    *userData->aspectRatio = (float)newWidth / (float)newHeight;
+});
+
 glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
     if (!focused) {
         glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -161,10 +197,15 @@ glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
         glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        gridRenderer.Render(camera, aspectRatio);
+
         triangleShader.Bind();
 
         triangleShader.SetMat4("uView", camera.GetViewMatrix());
-        triangleShader.SetMat4("uProjection", camera.GetProjectionMatrix(1280.0f / 720.0f));
+        triangleShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspectRatio));
 
         triangleShader.SetVec3("uViewPos", camera.Position);
         triangleShader.SetVec3("uDirLightDirection", glm::vec3(-0.3f, -1.0f, -0.3f));
@@ -202,9 +243,11 @@ glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
         }
 
         editorUI.BeginFrame();
+        editorUI.DrawMenuBar();
         editorUI.DrawSceneHierarchy(scene);
         editorUI.DrawInspector(scene);
         editorUI.DrawAssetBrowser();
+        editorUI.DrawViewportSettings(camera, gridRenderer);
         editorUI.Render();
 
         glfwSwapBuffers(window);

@@ -34,6 +34,7 @@ add_executable(engine
     src/scripting/ScriptEngine.cpp
     src/scene/ChunkManager.cpp
     src/editor/EditorUI.cpp
+    src/rendering/GridRenderer.cpp
 )
 
 target_include_directories(engine PRIVATE
