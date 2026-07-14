@@ -22,3 +22,8 @@ class Model; // forward declare from rendering
 struct MeshRenderer {
     std::shared_ptr<Model> ModelRef;
 };
+
+struct ChunkId {
+    int x, z;
+    bool operator==(const ChunkId& other) const { return x == other.x && z == other.z; }
+};

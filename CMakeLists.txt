@@ -31,6 +31,7 @@ add_executable(engine
     src/scene/SpatialGrid.cpp
     src/scene/SceneLoader.cpp
     src/scripting/ScriptEngine.cpp
+    src/scene/ChunkManager.cpp
 )
 
 target_include_directories(engine PRIVATE

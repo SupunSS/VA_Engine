@@ -17,6 +17,7 @@
 #include "scene/SceneLoader.h"
 #include "scripting/ScriptEngine.h"
 #include <glm/glm.hpp>
+#include "scene/ChunkManager.h"
 
 int main() {
     Log::Info("Engine starting up...");
@@ -75,7 +76,7 @@ int main() {
     Scene scene;
     SpatialGrid spatialGrid(50.0f);
 
-    SceneLoader::LoadFromFile("scenes/test_scene.json", scene);
+    ChunkManager chunkManager(50.0f, 1); // 50-unit chunks, load 1 chunk radius around viewer
 
     ScriptEngine scriptEngine;
     scriptEngine.Initialize(&scene);
@@ -158,6 +159,8 @@ int main() {
         for (auto entity : posView) {
             spatialGrid.Insert(entity, posView.get<Transform>(entity).Position);
         }
+
+        chunkManager.Update(camera.Position, scene);
 
         scriptEngine.CallUpdate(deltaTime);
         scriptEngine.CheckForReload(deltaTime);
