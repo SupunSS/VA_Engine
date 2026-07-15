@@ -22,6 +22,68 @@
 #include <imgui.h>
 #include "rendering/GridRenderer.h"
 #include "physics/PhysicsWorld.h"
+#include "rendering/Material.h"
+
+namespace {
+struct WindowUserData {
+    Camera* camera;
+    float* aspectRatio;
+    EditorUI* editorUI;
+    bool* mouseLookEnabled;
+    bool* mouseLookNeedsReset;
+    double* lastCursorX;
+    double* lastCursorY;
+    bool* isFullscreen;
+    int* windowedX;
+    int* windowedY;
+    int* windowedWidth;
+    int* windowedHeight;
+};
+
+void SetCursorMode(GLFWwindow* window, int cursorMode, bool centerCursor)
+{
+    glfwSetInputMode(window, GLFW_CURSOR, cursorMode);
+
+    if (!centerCursor) {
+        return;
+    }
+
+    int windowWidth = 0;
+    int windowHeight = 0;
+    glfwGetWindowSize(window, &windowWidth, &windowHeight);
+    glfwSetCursorPos(window, windowWidth * 0.5, windowHeight * 0.5);
+}
+
+void ToggleFullscreenWindow(GLFWwindow* window, WindowUserData* userData)
+{
+    if (userData == nullptr) {
+        return;
+    }
+
+    if (*userData->isFullscreen) {
+        glfwSetWindowMonitor(window, nullptr, *userData->windowedX, *userData->windowedY,
+            *userData->windowedWidth, *userData->windowedHeight, GLFW_DONT_CARE);
+        *userData->isFullscreen = false;
+    } else {
+        glfwGetWindowPos(window, userData->windowedX, userData->windowedY);
+        glfwGetWindowSize(window, userData->windowedWidth, userData->windowedHeight);
+
+        GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* videoMode = glfwGetVideoMode(primaryMonitor);
+        if (videoMode != nullptr) {
+            glfwSetWindowMonitor(window, primaryMonitor, 0, 0, videoMode->width, videoMode->height,
+                videoMode->refreshRate);
+        } else {
+            glfwSetWindowMonitor(window, primaryMonitor, 0, 0, 1280, 720, GLFW_DONT_CARE);
+        }
+
+        *userData->isFullscreen = true;
+    }
+
+    const bool shouldLockCursor = *userData->mouseLookEnabled;
+    SetCursorMode(window, shouldLockCursor ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL, shouldLockCursor);
+}
+} // namespace
 
 int main() {
     Log::Info("Engine starting up...");
@@ -61,13 +123,21 @@ int main() {
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); 
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "VA Engine", nullptr, nullptr);
     ENGINE_ASSERT(window != nullptr, "Failed to create GLFW window");
 
     glfwMakeContextCurrent(window);
     ENGINE_ASSERT(gladLoadGLLoader((GLADloadproc)glfwGetProcAddress), "Failed to initialize GLAD");
+
+    glfwMaximizeWindow(window);  
+    glfwShowWindow(window);       
+    glfwFocusWindow(window);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
     EditorUI editorUI;
     editorUI.Initialize(window);
     Log::Info("OpenGL loaded: {}", (const char*)glGetString(GL_VERSION));
@@ -78,9 +148,20 @@ int main() {
     glEnable(GL_DEPTH_TEST);
 
     float aspectRatio = (float)width / (float)height;
+    bool mouseLookEnabled = false;
+    bool mouseLookNeedsReset = true;
+    double lastCursorX = 0.0;
+    double lastCursorY = 0.0;
+    bool isFullscreen = false;
+    int windowedX = 0;
+    int windowedY = 0;
+    int windowedWidth = 1280;
+    int windowedHeight = 720;
 
     Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
-    Texture cubeTexture("textures/test.png");
+
+    auto defaultMaterial = std::make_shared<Material>();
+    defaultMaterial->albedoTint = glm::vec3(0.5f, 0.5f, 0.5f);
 
     Scene scene;
     SpatialGrid spatialGrid(50.0f);
@@ -98,7 +179,11 @@ int main() {
     auto& groundTransform = scene.Registry.get<Transform>(groundEntity);
     groundTransform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
     groundTransform.Scale = glm::vec3(10.0f, 0.25f, 10.0f);
-    scene.Registry.emplace<MeshRenderer>(groundEntity, SceneLoader::GetOrLoadModel("models/test.obj"));
+    scene.Registry.emplace<MeshRenderer>(
+    groundEntity,
+    SceneLoader::GetOrLoadModel("models/cube.obj"),
+    defaultMaterial
+);
     scene.Registry.emplace<RigidBody>(
         groundEntity,
         physicsWorld.CreateBoxBody(glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(10.0f, 0.25f, 10.0f), true),
@@ -107,18 +192,15 @@ int main() {
         glm::vec3(10.0f, 0.25f, 10.0f),
         0.5f
     );
+
     GridRenderer gridRenderer;
     float lastFrameTime = 0.0f;
     bool altRWasPressed = false;
+    bool altEnterWasPressed = false;
+    bool f11WasPressed = false;
 
-    struct WindowUserData {
-    Camera* camera;
-    float* aspectRatio;
-    EditorUI* editorUI;
-};
-
-WindowUserData userData{ &camera, &aspectRatio, &editorUI };
-glfwSetWindowUserPointer(window, &userData);
+    WindowUserData userData{ &camera, &aspectRatio, &editorUI, &mouseLookEnabled, &mouseLookNeedsReset, &lastCursorX, &lastCursorY, &isFullscreen, &windowedX, &windowedY, &windowedWidth, &windowedHeight };
+    glfwSetWindowUserPointer(window, &userData);
 
     glfwSetCursorPosCallback(window, [](GLFWwindow* win, double xpos, double ypos) {
     ImGuiIO& io = ImGui::GetIO();
@@ -126,26 +208,24 @@ glfwSetWindowUserPointer(window, &userData);
 
     if (io.WantCaptureMouse) return;
 
-    static float lastX = 640.0f, lastY = 360.0f;
-    static bool firstMouse = true;
     auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
     Camera* cam = userData->camera;
 
-    if (glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) != GLFW_PRESS) {
-        firstMouse = true;
+    if (!*userData->mouseLookEnabled) {
+        *userData->mouseLookNeedsReset = true;
         return;
     }
 
-    if (firstMouse) {
-        lastX = (float)xpos;
-        lastY = (float)ypos;
-        firstMouse = false;
+    if (*userData->mouseLookNeedsReset) {
+        *userData->lastCursorX = xpos;
+        *userData->lastCursorY = ypos;
+        *userData->mouseLookNeedsReset = false;
     }
 
-    float xOffset = (float)xpos - lastX;
-    float yOffset = lastY - (float)ypos;
-    lastX = (float)xpos;
-    lastY = (float)ypos;
+    float xOffset = (float)xpos - (float)*userData->lastCursorX;
+    float yOffset = (float)*userData->lastCursorY - (float)ypos;
+    *userData->lastCursorX = xpos;
+    *userData->lastCursorY = ypos;
 
     cam->ProcessMouseMovement(xOffset, yOffset);
 });
@@ -154,13 +234,25 @@ glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, i
     ImGuiIO& io = ImGui::GetIO();
     io.AddMouseButtonEvent(button, action == GLFW_PRESS);
 
-    if (io.WantCaptureMouse) return;
+    auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
+
+    if (io.WantCaptureMouse) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+            *userData->mouseLookEnabled = false;
+            SetCursorMode(win, GLFW_CURSOR_NORMAL, false);
+        }
+        return;
+    }
 
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (action == GLFW_PRESS)
-            glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-        else if (action == GLFW_RELEASE)
-            glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        if (action == GLFW_PRESS) {
+            *userData->mouseLookEnabled = true;
+            *userData->mouseLookNeedsReset = true;
+            SetCursorMode(win, GLFW_CURSOR_DISABLED, true);
+        } else if (action == GLFW_RELEASE) {
+            *userData->mouseLookEnabled = false;
+            SetCursorMode(win, GLFW_CURSOR_NORMAL, false);
+        }
     }
 });
 
@@ -189,9 +281,17 @@ glfwSetFramebufferSizeCallback(window, [](GLFWwindow* win, int newWidth, int new
 });
 
 glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
-    if (!focused) {
-        glfwSetInputMode(win, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
+    if (userData == nullptr) {
+        return;
     }
+
+    if (!focused) {
+        *userData->mouseLookEnabled = false;
+        *userData->mouseLookNeedsReset = true;
+    }
+
+    SetCursorMode(win, GLFW_CURSOR_NORMAL, false);
 });
 
 glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
@@ -220,10 +320,17 @@ glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
 
         const bool altHeld = glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
         const bool rHeld = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
+        const bool enterHeld = glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS;
+        const bool f11Held = glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS;
         if (altHeld && rHeld && !altRWasPressed) {
             editorUI.ToggleStatsOverlay();
         }
+        if ((altHeld && enterHeld && !altEnterWasPressed) || (f11Held && !f11WasPressed)) {
+            ToggleFullscreenWindow(window, &userData);
+        }
         altRWasPressed = altHeld && rHeld;
+        altEnterWasPressed = altHeld && enterHeld;
+        f11WasPressed = f11Held;
 
         bool w = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
         bool s = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
@@ -231,9 +338,7 @@ glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
         bool d = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
         camera.ProcessKeyboard(w, s, a, d, deltaTime);
 
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-            glfwSetWindowShouldClose(window, true);
-
+    
         glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -287,17 +392,13 @@ glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
         }
 
         auto view = scene.Registry.view<Transform, MeshRenderer>();
-        for (auto entity : view) {
-            auto [transform, renderer] = view.get<Transform, MeshRenderer>(entity);
-            glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
-            triangleShader.SetMat4("uModel", worldMatrix);
-            if (renderer.TextureRef) {
-                renderer.TextureRef->Bind(0);
-            } else {
-                cubeTexture.Bind(0);
-            }
-            renderer.ModelRef->Draw();
-        }
+for (auto entity : view) {
+    auto [transform, renderer] = view.get<Transform, MeshRenderer>(entity);
+    glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
+    triangleShader.SetMat4("uModel", worldMatrix);
+
+    renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
+}
 
         editorUI.BeginFrame();
         editorUI.DrawMenuBar();

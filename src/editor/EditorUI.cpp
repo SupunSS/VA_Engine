@@ -16,6 +16,7 @@
 #include <system_error>
 #include <thread>
 #include <unordered_set>
+#include "../rendering/Material.h"
 
 namespace {
 constexpr const char* kAssetPayloadType = "VA_ASSET_PATH";
@@ -96,7 +97,7 @@ entt::entity SpawnPhysicsTestBody(Scene& scene, PhysicsWorld& physicsWorld, cons
     auto& transform = scene.Registry.get<Transform>(entity);
     transform.Position = position;
 
-    auto model = SceneLoader::GetOrLoadModel("models/test.obj");
+    auto model = SceneLoader::GetOrLoadModel("models/cube.obj");
     scene.Registry.emplace<MeshRenderer>(entity, model);
     scene.Registry.emplace<PhysicsTestBody>(entity);
 
@@ -589,7 +590,10 @@ bool EditorUI::ApplyTextureToSelectedEntity(Scene& scene, const std::filesystem:
     }
 
     auto& renderer = scene.Registry.get<MeshRenderer>(SelectedEntity);
-    renderer.TextureRef = texture;
+    if (!renderer.MaterialRef) {
+    renderer.MaterialRef = std::make_shared<Material>();
+    }
+    renderer.MaterialRef->albedoMap = texture;
 
     m_assetStatusMessage = "Assigned " + assetPath.filename().string() + " to selected entity";
     return true;
@@ -710,10 +714,20 @@ void EditorUI::DrawInspector(Scene& scene) {
         }
 
         if (scene.Registry.all_of<MeshRenderer>(SelectedEntity)) {
-            const auto& renderer = scene.Registry.get<MeshRenderer>(SelectedEntity);
-            ImGui::Text("Has MeshRenderer: Yes");
-            ImGui::Text("Texture: %s", renderer.TextureRef ? "Custom" : "Default");
-        }
+    const auto& renderer = scene.Registry.get<MeshRenderer>(SelectedEntity);
+    ImGui::Text("Has MeshRenderer: Yes");
+
+    if (renderer.MaterialRef) {
+        ImGui::Text("Albedo: %s", renderer.MaterialRef->albedoMap ? "Custom" : "None");
+        ImGui::Text("Normal Map: %s", renderer.MaterialRef->normalMap ? "Assigned" : "None");
+        ImGui::ColorEdit3("Tint", &renderer.MaterialRef->albedoTint.x);
+        ImGui::SliderFloat("Roughness", &renderer.MaterialRef->roughness, 0.0f, 1.0f);
+        ImGui::SliderFloat("Metallic", &renderer.MaterialRef->metallic, 0.0f, 1.0f);
+        ImGui::SliderFloat("Normal Strength", &renderer.MaterialRef->normalStrength, 0.0f, 2.0f);
+    } else {
+        ImGui::Text("Material: None");
+    }
+}
     } else {
         ImGui::Text("No entity selected");
     }

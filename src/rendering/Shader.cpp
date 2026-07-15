@@ -56,6 +56,18 @@ void Shader::SetVec3(const std::string& name, const glm::vec3& value) const
     glUniform3fv(location, 1, glm::value_ptr(value));
 }
 
+void Shader::SetInt(const std::string& name, int value) const
+{
+    int location = glGetUniformLocation(m_programID, name.c_str());
+    glUniform1i(location, value);
+}
+
+void Shader::SetFloat(const std::string& name, float value) const
+{
+    int location = glGetUniformLocation(m_programID, name.c_str());
+    glUniform1f(location, value);
+}
+
 unsigned int Shader::Compile(unsigned int type, const std::string& source)
 {
     unsigned int shader = glCreateShader(type);
@@ -86,8 +98,3 @@ std::string Shader::ReadFile(const std::string& path)
     return buffer.str();
 }
 
-void Shader::SetFloat(const std::string& name, float value) const
-{
-    int location = glGetUniformLocation(m_programID, name.c_str());
-    glUniform1f(location, value);
-}

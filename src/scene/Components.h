@@ -6,6 +6,7 @@
 #include <utility>
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
+#include "../rendering/Material.h" 
 
 // Every entity that exists in the world has this. Cheap by design —
 // static props (streetlights, trash cans) never touch anything beyond this.
@@ -21,17 +22,18 @@ struct Transform {
     glm::mat4 GetLocalMatrix() const;
 };
 
-class Model; // forward declare from rendering
-class Texture; // forward declare from rendering
+class Model;    // forward declare from rendering
+class Texture;  // forward declare from rendering
+
 struct MeshRenderer {
     std::shared_ptr<Model> ModelRef;
-    std::shared_ptr<Texture> TextureRef;
+    std::shared_ptr<Material> MaterialRef;
 
     MeshRenderer() = default;
     explicit MeshRenderer(std::shared_ptr<Model> model)
         : ModelRef(std::move(model)) {}
-    MeshRenderer(std::shared_ptr<Model> model, std::shared_ptr<Texture> texture)
-        : ModelRef(std::move(model)), TextureRef(std::move(texture)) {}
+    MeshRenderer(std::shared_ptr<Model> model, std::shared_ptr<Material> material)
+        : ModelRef(std::move(model)), MaterialRef(std::move(material)) {}
 };
 
 struct ChunkId {

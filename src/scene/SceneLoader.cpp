@@ -22,7 +22,10 @@ std::shared_ptr<Model> SceneLoader::GetOrLoadModel(const std::string& path) {
 
 void SceneLoader::LoadFromFile(const std::string& path, Scene& scene) {
     std::ifstream file(path);
-    ENGINE_ASSERT(file.is_open(), "Failed to open scene file");
+    if (!file.is_open()) {
+        Log::Warn("Failed to open scene file: {}", path);
+        return;
+    }
 
     nlohmann::json data;
     file >> data;

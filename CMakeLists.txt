@@ -28,6 +28,7 @@ add_executable(engine
     src/rendering/Texture.cpp
     src/rendering/Mesh.cpp
     src/rendering/Model.cpp
+    src/rendering/Material.cpp
     src/scene/Components.cpp
     src/scene/Scene.cpp
     src/scene/SpatialGrid.cpp
@@ -37,6 +38,7 @@ add_executable(engine
     src/editor/EditorUI.cpp
     src/rendering/GridRenderer.cpp
     src/physics/PhysicsWorld.cpp
+    src/rendering/ResourceManager.cpp
 )
 
 target_include_directories(engine PRIVATE

@@ -19,7 +19,15 @@ Texture::Texture(const std::string& path) {
 
     int width, height, channels;
     unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 0);
-    ENGINE_ASSERT(data != nullptr, "Failed to load texture");
+    if (data == nullptr) {
+        Log::Warn("Failed to load texture {}, using grey fallback", path);
+        width = height = 1;
+        channels = 3;
+        unsigned char fallbackPixel[3] = {128, 128, 128};
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, fallbackPixel);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        return;
+    }
 
     GLenum format = channels == 4 ? GL_RGBA : GL_RGB;
     glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
