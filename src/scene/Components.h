@@ -4,6 +4,8 @@
 #include <entt/entt.hpp>
 #include <memory>
 #include <utility>
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/BodyID.h>
 
 // Every entity that exists in the world has this. Cheap by design —
 // static props (streetlights, trash cans) never touch anything beyond this.
@@ -35,4 +37,33 @@ struct MeshRenderer {
 struct ChunkId {
     int x, z;
     bool operator==(const ChunkId& other) const { return x == other.x && z == other.z; }
+};
+
+enum class PhysicsShapeType {
+    Box = 0,
+    Sphere = 1
+};
+
+struct PhysicsTestBody {};
+
+struct RigidBody {
+    JPH::BodyID BodyId{};
+    bool IsStatic = false;
+    PhysicsShapeType Shape = PhysicsShapeType::Box;
+    glm::vec3 BoxHalfExtents{0.5f};
+    float SphereRadius = 0.5f;
+
+    RigidBody() = default;
+    RigidBody(
+        JPH::BodyID bodyId,
+        bool isStatic,
+        PhysicsShapeType shape,
+        const glm::vec3& boxHalfExtents,
+        float sphereRadius
+    )
+        : BodyId(bodyId),
+          IsStatic(isStatic),
+          Shape(shape),
+          BoxHalfExtents(boxHalfExtents),
+          SphereRadius(sphereRadius) {}
 };

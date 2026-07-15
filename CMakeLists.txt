@@ -15,6 +15,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(sol2 CONFIG REQUIRED)
 find_package(Lua REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(Jolt CONFIG REQUIRED)
 
 add_executable(engine 
     src/main.cpp
@@ -35,6 +36,7 @@ add_executable(engine
     src/scene/ChunkManager.cpp
     src/editor/EditorUI.cpp
     src/rendering/GridRenderer.cpp
+    src/physics/PhysicsWorld.cpp
 )
 
 target_include_directories(engine PRIVATE
@@ -42,4 +44,4 @@ target_include_directories(engine PRIVATE
     ${Stb_INCLUDE_DIR}
     ${LUA_INCLUDE_DIR}
 )
-target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} imgui::imgui)
+target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} imgui::imgui Jolt::Jolt)

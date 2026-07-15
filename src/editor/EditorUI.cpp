@@ -1,8 +1,10 @@
 #include "EditorUI.h"
+#include <glad/glad.h>
 #include "../core/Log.h"
 #include "../rendering/Texture.h"
 #include "../scene/Components.h"
 #include "../scene/SceneLoader.h"
+#include "../physics/PhysicsWorld.h"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -12,6 +14,7 @@
 #include <cstring>
 #include <filesystem>
 #include <system_error>
+#include <thread>
 #include <unordered_set>
 
 namespace {
@@ -88,6 +91,45 @@ bool HasInvalidAssetNameCharacter(const std::string& name) {
     return name.find_first_of("\\/<>:\"|?*") != std::string::npos;
 }
 
+entt::entity SpawnPhysicsTestBody(Scene& scene, PhysicsWorld& physicsWorld, const glm::vec3& position, bool isStatic, PhysicsShapeType shapeType, float boxHalfExtent, float sphereRadius) {
+    auto entity = scene.CreateEntity();
+    auto& transform = scene.Registry.get<Transform>(entity);
+    transform.Position = position;
+
+    auto model = SceneLoader::GetOrLoadModel("models/test.obj");
+    scene.Registry.emplace<MeshRenderer>(entity, model);
+    scene.Registry.emplace<PhysicsTestBody>(entity);
+
+    if (shapeType == PhysicsShapeType::Box) {
+        const glm::vec3 halfExtents(boxHalfExtent);
+        transform.Scale = glm::vec3(halfExtents.x * 2.0f, halfExtents.y * 2.0f, halfExtents.z * 2.0f);
+        const auto bodyId = physicsWorld.CreateBoxBody(position, halfExtents, isStatic);
+        scene.Registry.emplace<RigidBody>(entity, bodyId, isStatic, shapeType, halfExtents, 0.5f);
+        return entity;
+    }
+
+    transform.Scale = glm::vec3(sphereRadius * 2.0f);
+    const auto bodyId = physicsWorld.CreateSphereBody(position, sphereRadius, isStatic);
+    scene.Registry.emplace<RigidBody>(entity, bodyId, isStatic, shapeType, glm::vec3(0.5f), sphereRadius);
+    return entity;
+}
+
+void ResetPhysicsTestBodies(Scene& scene, PhysicsWorld& physicsWorld) {
+    std::vector<entt::entity> toDestroy;
+    auto view = scene.Registry.view<RigidBody, PhysicsTestBody>();
+    for (auto entity : view) {
+        auto& rigidBody = view.get<RigidBody>(entity);
+        if (!rigidBody.BodyId.IsInvalid()) {
+            physicsWorld.DestroyBody(rigidBody.BodyId);
+        }
+        toDestroy.push_back(entity);
+    }
+
+    for (auto entity : toDestroy) {
+        scene.DestroyEntity(entity);
+    }
+}
+
 std::filesystem::path GetDefaultFolderForAsset(const std::filesystem::path& path) {
     const std::string extension = GetLowerExtension(path);
 
@@ -121,6 +163,17 @@ void EditorUI::Initialize(GLFWwindow* window) {
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 460");
+
+    const auto* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+    const auto* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+    const auto* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+    const auto* glslVersion = reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION));
+
+    m_gpuVendor = vendor != nullptr ? vendor : "Unknown";
+    m_gpuRenderer = renderer != nullptr ? renderer : "Unknown";
+    m_glVersion = version != nullptr ? version : "Unknown";
+    m_glslVersion = glslVersion != nullptr ? glslVersion : "Unknown";
+    m_hardwareConcurrency = std::max(1u, std::thread::hardware_concurrency());
 }
 
 void EditorUI::Shutdown() {
@@ -148,6 +201,17 @@ void EditorUI::QueueDroppedFiles(int count, const char** paths) {
             m_pendingDroppedFiles.emplace_back(paths[i]);
         }
     }
+}
+
+void EditorUI::UpdatePerformanceStats(float deltaTime, int windowWidth, int windowHeight) {
+    m_windowWidth = windowWidth;
+    m_windowHeight = windowHeight;
+    m_frameTimeMs = deltaTime * 1000.0f;
+    m_fps = deltaTime > 0.0f ? 1.0f / deltaTime : 0.0f;
+}
+
+void EditorUI::ToggleStatsOverlay() {
+    ShowStatsOverlay = !ShowStatsOverlay;
 }
 
 void EditorUI::EnsureAssetDirectories() {
@@ -557,10 +621,43 @@ void EditorUI::DrawMenuBar() {
             ImGui::MenuItem("Inspector", nullptr, &ShowInspector);
             ImGui::MenuItem("Asset Browser", nullptr, &ShowAssetBrowser);
             ImGui::MenuItem("Viewport Settings", nullptr, &ShowViewportSettings);
+            ImGui::Separator();
+            ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
     }
+}
+
+void EditorUI::DrawStatsOverlay() {
+    if (!ShowStatsOverlay) {
+        return;
+    }
+
+    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f, 0.0f), ImVec2(320.0f, FLT_MAX));
+
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoNav;
+
+    if (ImGui::Begin("##StatsOverlay", &ShowStatsOverlay, flags)) {
+        ImGui::Text("Performance Stats");
+        ImGui::Separator();
+        ImGui::Text("FPS: %.1f", m_fps);
+        ImGui::Text("Frame: %.2f ms", m_frameTimeMs);
+        ImGui::Text("Resolution: %dx%d", m_windowWidth, m_windowHeight);
+        ImGui::Separator();
+        ImGui::Text("GPU: %s", m_gpuVendor.c_str());
+        ImGui::TextWrapped("Renderer: %s", m_gpuRenderer.c_str());
+        ImGui::Text("OpenGL: %s", m_glVersion.c_str());
+        ImGui::Text("GLSL: %s", m_glslVersion.c_str());
+        ImGui::Text("Threads: %u", m_hardwareConcurrency);
+    }
+    ImGui::End();
 }
 
 void EditorUI::DrawSceneHierarchy(Scene& scene) {
@@ -888,6 +985,77 @@ void EditorUI::DrawDeleteAssetPopup() {
     }
 }
 
+void EditorUI::DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld) {
+    if (!ShowPhysicsPanel) return;
+    ImGui::Begin("Physics Test", &ShowPhysicsPanel);
+
+    static bool physicsEnabled = true;
+    static float gravity = -9.81f;
+    static float spawnHeight = 4.0f;
+    static bool spawnStatic = false;
+    static int currentShape = static_cast<int>(PhysicsShapeType::Box);
+    static float boxHalfExtent = 0.5f;
+    static float sphereRadius = 0.5f;
+
+    if (ImGui::Checkbox("Enabled", &physicsEnabled)) {
+        physicsWorld.SetEnabled(physicsEnabled);
+    }
+
+    if (ImGui::SliderFloat("Gravity", &gravity, -20.0f, 20.0f, "%.2f")) {
+        physicsWorld.SetGravity(glm::vec3(0.0f, gravity, 0.0f));
+    }
+
+    ImGui::Separator();
+    ImGui::Combo("Shape", &currentShape, "Box\0Sphere\0");
+
+    const auto shapeType = static_cast<PhysicsShapeType>(currentShape);
+    if (shapeType == PhysicsShapeType::Box) {
+        ImGui::SliderFloat("Half Extent", &boxHalfExtent, 0.1f, 2.0f, "%.2f");
+    } else {
+        ImGui::SliderFloat("Radius", &sphereRadius, 0.1f, 2.0f, "%.2f");
+    }
+
+    ImGui::SliderFloat("Spawn Height", &spawnHeight, 1.0f, 10.0f, "%.1f");
+    ImGui::Checkbox("Static Body", &spawnStatic);
+
+    if (ImGui::Button("Spawn Body")) {
+        const auto entity = SpawnPhysicsTestBody(
+            scene,
+            physicsWorld,
+            glm::vec3(0.0f, spawnHeight, 0.0f),
+            spawnStatic,
+            shapeType,
+            boxHalfExtent,
+            sphereRadius
+        );
+        SelectedEntity = entity;
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Bodies")) {
+        ResetPhysicsTestBodies(scene, physicsWorld);
+    }
+
+    ImGui::Separator();
+    const int physicsBodyCount = static_cast<int>(scene.Registry.view<RigidBody>().size());
+    ImGui::Text("Physics bodies: %d", physicsBodyCount);
+    ImGui::Text("Simulation: %s", physicsEnabled ? "Running" : "Paused");
+
+    if (SelectedEntity != entt::null && scene.Registry.valid(SelectedEntity) && scene.Registry.all_of<RigidBody>(SelectedEntity)) {
+        const auto& rigidBody = scene.Registry.get<RigidBody>(SelectedEntity);
+        ImGui::Separator();
+        ImGui::Text("Selected body");
+        ImGui::Text("Shape: %s", rigidBody.Shape == PhysicsShapeType::Box ? "Box" : "Sphere");
+        ImGui::Text("Static: %s", rigidBody.IsStatic ? "Yes" : "No");
+        if (!rigidBody.BodyId.IsInvalid()) {
+            const auto bodyPosition = physicsWorld.GetBodyPosition(rigidBody.BodyId);
+            ImGui::Text("Position: %.2f, %.2f, %.2f", bodyPosition.x, bodyPosition.y, bodyPosition.z);
+        }
+    }
+
+    ImGui::End();
+}
+
 void EditorUI::DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer) {
     if (!ShowViewportSettings) return;
     ImGui::Begin("Viewport Settings", &ShowViewportSettings);
@@ -900,6 +1068,12 @@ void EditorUI::DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer) 
 
     ImGui::Separator();
     ImGui::Checkbox("Show Grid", &gridRenderer.Visible);
+    ImGui::Separator();
+    if (ImGui::Button(ShowStatsOverlay ? "Hide Stats Overlay" : "Show Stats Overlay")) {
+        ToggleStatsOverlay();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("Alt+R");
 
     ImGui::End();
 }

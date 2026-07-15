@@ -21,6 +21,7 @@
 #include "editor/EditorUI.h"
 #include <imgui.h>
 #include "rendering/GridRenderer.h"
+#include "physics/PhysicsWorld.h"
 
 int main() {
     Log::Info("Engine starting up...");
@@ -83,6 +84,7 @@ int main() {
 
     Scene scene;
     SpatialGrid spatialGrid(50.0f);
+    PhysicsWorld physicsWorld;
 
     ChunkManager chunkManager(50.0f, 1); // 50-unit chunks, load 1 chunk radius around viewer
 
@@ -91,8 +93,23 @@ int main() {
     scriptEngine.RunScript("scripts/test.lua");
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+
+    auto groundEntity = scene.CreateEntity();
+    auto& groundTransform = scene.Registry.get<Transform>(groundEntity);
+    groundTransform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
+    groundTransform.Scale = glm::vec3(10.0f, 0.25f, 10.0f);
+    scene.Registry.emplace<MeshRenderer>(groundEntity, SceneLoader::GetOrLoadModel("models/test.obj"));
+    scene.Registry.emplace<RigidBody>(
+        groundEntity,
+        physicsWorld.CreateBoxBody(glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(10.0f, 0.25f, 10.0f), true),
+        true,
+        PhysicsShapeType::Box,
+        glm::vec3(10.0f, 0.25f, 10.0f),
+        0.5f
+    );
     GridRenderer gridRenderer;
     float lastFrameTime = 0.0f;
+    bool altRWasPressed = false;
 
     struct WindowUserData {
     Camera* camera;
@@ -193,6 +210,21 @@ glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
 
         glfwPollEvents();
 
+        int framebufferWidth = 0;
+        int framebufferHeight = 0;
+        glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+        if (framebufferHeight > 0) {
+            aspectRatio = static_cast<float>(framebufferWidth) / static_cast<float>(framebufferHeight);
+        }
+        editorUI.UpdatePerformanceStats(deltaTime, framebufferWidth, framebufferHeight);
+
+        const bool altHeld = glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
+        const bool rHeld = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
+        if (altHeld && rHeld && !altRWasPressed) {
+            editorUI.ToggleStatsOverlay();
+        }
+        altRWasPressed = altHeld && rHeld;
+
         bool w = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
         bool s = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
         bool a = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
@@ -229,6 +261,20 @@ glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
 
         chunkManager.Update(camera.Position, scene);
 
+        physicsWorld.Step(deltaTime);
+
+        auto rigidBodyView = scene.Registry.view<Transform, RigidBody>();
+        for (auto entity : rigidBodyView) {
+            auto& transform = rigidBodyView.get<Transform>(entity);
+            auto& rigidBody = rigidBodyView.get<RigidBody>(entity);
+            if (rigidBody.BodyId.IsInvalid()) {
+                continue;
+            }
+
+            transform.Position = physicsWorld.GetBodyPosition(rigidBody.BodyId);
+            transform.Rotation = physicsWorld.GetBodyRotation(rigidBody.BodyId);
+        }
+
         scriptEngine.CallUpdate(deltaTime);
         scriptEngine.CheckForReload(deltaTime);
 
@@ -258,7 +304,9 @@ glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
         editorUI.DrawSceneHierarchy(scene);
         editorUI.DrawInspector(scene);
         editorUI.DrawAssetBrowser(scene);
+        editorUI.DrawPhysicsPanel(scene, physicsWorld);
         editorUI.DrawViewportSettings(camera, gridRenderer);
+        editorUI.DrawStatsOverlay();
         editorUI.Render();
 
         glfwSwapBuffers(window);
