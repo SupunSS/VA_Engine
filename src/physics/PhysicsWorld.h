@@ -21,6 +21,9 @@ public:
 
     JPH::BodyID CreateBoxBody(const glm::vec3& position, const glm::vec3& halfExtents, bool isStatic);
     JPH::BodyID CreateSphereBody(const glm::vec3& position, float radius, bool isStatic);
+    JPH::PhysicsSystem& GetSystem() { return *m_physicsSystem; }
+    JPH::TempAllocator& GetTempAllocator() { return *m_tempAllocator; }
+    JPH::ObjectLayer GetMovingLayer() const;
 
     glm::vec3 GetBodyPosition(JPH::BodyID bodyId) const;
     glm::quat GetBodyRotation(JPH::BodyID bodyId) const;

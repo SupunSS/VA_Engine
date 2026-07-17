@@ -5,6 +5,7 @@
 #include "../scene/Components.h"
 #include "../scene/SceneLoader.h"
 #include "../physics/PhysicsWorld.h"
+#include "../physics/CharacterController.h"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -624,6 +625,8 @@ void EditorUI::DrawMenuBar() {
             ImGui::MenuItem("Scene Hierarchy", nullptr, &ShowSceneHierarchy);
             ImGui::MenuItem("Inspector", nullptr, &ShowInspector);
             ImGui::MenuItem("Asset Browser", nullptr, &ShowAssetBrowser);
+            ImGui::MenuItem("Physics Test", nullptr, &ShowPhysicsPanel);
+            ImGui::MenuItem("Player", nullptr, &ShowPlayerPanel);
             ImGui::MenuItem("Viewport Settings", nullptr, &ShowViewportSettings);
             ImGui::Separator();
             ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
@@ -1088,6 +1091,28 @@ void EditorUI::DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer) 
     }
     ImGui::SameLine();
     ImGui::TextDisabled("Alt+R");
+
+    ImGui::End();
+}
+
+void EditorUI::DrawPlayerPanel(bool& playMode, CharacterController* controller) {
+    if (!ShowPlayerPanel) return;
+    ImGui::Begin("Player", &ShowPlayerPanel);
+
+    if (ImGui::Button(playMode ? "Stop" : "Play")) {
+        playMode = !playMode;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("Esc also exits Play mode");
+
+    if (controller) {
+        ImGui::SliderFloat("Walk Speed", &controller->WalkSpeed, 1.0f, 10.0f);
+        ImGui::SliderFloat("Sprint Speed", &controller->SprintSpeed, 1.0f, 15.0f);
+        ImGui::SliderFloat("Jump Speed", &controller->JumpSpeed, 1.0f, 12.0f);
+        ImGui::Text(controller->IsGrounded() ? "Grounded" : "Airborne");
+    } else {
+        ImGui::TextDisabled("No character controller bound");
+    }
 
     ImGui::End();
 }

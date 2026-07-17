@@ -39,6 +39,8 @@ add_executable(engine
     src/rendering/GridRenderer.cpp
     src/physics/PhysicsWorld.cpp
     src/rendering/ResourceManager.cpp
+    src/physics/CharacterController.cpp
+    src/rendering/FollowCamera.cpp
 )
 
 target_include_directories(engine PRIVATE

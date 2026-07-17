@@ -41,6 +41,8 @@ struct ChunkId {
     bool operator==(const ChunkId& other) const { return x == other.x && z == other.z; }
 };
 
+struct PlayerTag {};
+
 enum class PhysicsShapeType {
     Box = 0,
     Sphere = 1

@@ -176,3 +176,7 @@ glm::quat PhysicsWorld::GetBodyRotation(JPH::BodyID bodyId) const {
     Quat rot = m_physicsSystem->GetBodyInterface().GetRotation(bodyId);
     return glm::quat(rot.GetW(), rot.GetX(), rot.GetY(), rot.GetZ());
 }
+
+JPH::ObjectLayer PhysicsWorld::GetMovingLayer() const {
+    return Layers::MOVING;
+}

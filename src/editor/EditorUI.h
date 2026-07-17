@@ -16,6 +16,7 @@
 #include <vector>
 
 class Texture;
+class CharacterController; // used only by pointer here — full type comes from CharacterController.h in the .cpp
 
 class EditorUI {
 public:
@@ -36,6 +37,8 @@ public:
     void DrawAssetBrowser(Scene& scene);
     void DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld);
     void DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer);
+    void DrawPlayerPanel(bool& playMode, CharacterController* controller);
+
 
     entt::entity SelectedEntity = entt::null;
 
@@ -46,6 +49,7 @@ public:
     bool ShowPhysicsPanel = true;
     bool ShowViewportSettings = true;
     bool ShowStatsOverlay = false;
+    bool ShowPlayerPanel = true;
 
 private:
     void EnsureAssetDirectories();
