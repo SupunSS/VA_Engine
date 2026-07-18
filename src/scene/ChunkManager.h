@@ -3,11 +3,13 @@
 #include <unordered_set>
 #include <string>
 
+class PhysicsWorld; // forward declare
+
 class ChunkManager {
 public:
     ChunkManager(float chunkSize, int loadRadius);
 
-    void Update(const glm::vec3& viewerPosition, Scene& scene);
+    void Update(const glm::vec3& viewerPosition, Scene& scene, PhysicsWorld& physicsWorld);
 
 private:
     struct ChunkKey {

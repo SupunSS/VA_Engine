@@ -12,6 +12,7 @@ public:
 
     // Call every frame with the player's current position (feet/base).
     void SetTarget(const glm::vec3& targetPosition);
+    const glm::vec3& GetTarget() const { return m_target; }
 
     void ProcessMouseMovement(float xOffset, float yOffset);
     void ProcessScroll(float yOffset);

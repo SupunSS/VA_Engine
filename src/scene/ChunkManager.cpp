@@ -1,6 +1,7 @@
 #include "ChunkManager.h"
 #include "SceneLoader.h"
 #include "../core/Log.h"
+#include "../physics/PhysicsWorld.h"
 #include <cmath>
 
 ChunkManager::ChunkManager(float chunkSize, int loadRadius)
@@ -17,7 +18,7 @@ std::string ChunkManager::GetChunkPath(int x, int z) const {
     return "scenes/chunks/chunk_" + std::to_string(x) + "_" + std::to_string(z) + ".json";
 }
 
-void ChunkManager::Update(const glm::vec3& viewerPosition, Scene& scene) {
+void ChunkManager::Update(const glm::vec3& viewerPosition, Scene& scene, PhysicsWorld& physicsWorld) {
     ChunkKey center = WorldToChunk(viewerPosition);
 
     std::unordered_set<ChunkKey, ChunkKeyHash> desiredChunks;
@@ -30,7 +31,7 @@ void ChunkManager::Update(const glm::vec3& viewerPosition, Scene& scene) {
     // Load chunks that should be active but aren't yet
     for (const auto& key : desiredChunks) {
         if (m_loadedChunks.find(key) == m_loadedChunks.end()) {
-            SceneLoader::LoadChunk(GetChunkPath(key.x, key.z), scene, key.x, key.z);
+            SceneLoader::LoadChunk(GetChunkPath(key.x, key.z), scene, physicsWorld, key.x, key.z, m_chunkSize);
             m_loadedChunks.insert(key);
         }
     }
@@ -44,7 +45,7 @@ void ChunkManager::Update(const glm::vec3& viewerPosition, Scene& scene) {
     }
 
     for (const auto& key : toUnload) {
-        SceneLoader::UnloadChunk(scene, key.x, key.z);
+        SceneLoader::UnloadChunk(scene, physicsWorld, key.x, key.z);
         m_loadedChunks.erase(key);
     }
 }

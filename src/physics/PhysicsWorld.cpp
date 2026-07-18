@@ -6,6 +6,8 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 #include <algorithm>
 #include <cstdarg>
 #include <thread>
@@ -179,4 +181,37 @@ glm::quat PhysicsWorld::GetBodyRotation(JPH::BodyID bodyId) const {
 
 JPH::ObjectLayer PhysicsWorld::GetMovingLayer() const {
     return Layers::MOVING;
+}
+
+bool PhysicsWorld::CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, float& outHitDistance) const {
+    JPH::RRayCast ray{
+        JPH::RVec3(origin.x, origin.y, origin.z),
+        JPH::Vec3(direction.x, direction.y, direction.z) * maxDistance
+    };
+
+    JPH::RayCastResult hit;
+    hit.Reset();
+    bool hadHit = m_physicsSystem->GetNarrowPhaseQuery().CastRay(ray, hit);
+    if (hadHit) {
+        outHitDistance = hit.mFraction * maxDistance;
+        return true;
+    }
+    return false;
+}
+
+bool PhysicsWorld::RaycastClosest(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, glm::vec3& outHitPoint) const {
+    RRayCast ray(
+        RVec3(origin.x, origin.y, origin.z),
+        Vec3(direction.x, direction.y, direction.z) * maxDistance
+    );
+
+    RayCastResult result;
+    const bool hit = m_physicsSystem->GetNarrowPhaseQuery().CastRay(ray, result);
+    if (!hit) {
+        return false;
+    }
+
+    RVec3 hitPos = ray.GetPointOnRay(result.mFraction);
+    outHitPoint = glm::vec3(hitPos.GetX(), hitPos.GetY(), hitPos.GetZ());
+    return true;
 }

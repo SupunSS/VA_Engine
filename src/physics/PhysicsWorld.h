@@ -18,6 +18,8 @@ public:
     void SetEnabled(bool enabled);
     bool IsEnabled() const;
     void DestroyBody(JPH::BodyID bodyId);
+    bool CastRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, float& outHitDistance) const;
+    bool RaycastClosest(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, glm::vec3& outHitPoint) const;
 
     JPH::BodyID CreateBoxBody(const glm::vec3& position, const glm::vec3& halfExtents, bool isStatic);
     JPH::BodyID CreateSphereBody(const glm::vec3& position, float radius, bool isStatic);

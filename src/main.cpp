@@ -25,6 +25,7 @@
 #include "rendering/Material.h"
 #include "physics/CharacterController.h"
 #include "rendering/FollowCamera.h"
+#include "rendering/Skybox.h"
 
 namespace {
 struct WindowUserData {
@@ -144,6 +145,13 @@ int main() {
     glfwFocusWindow(window);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
+    // Bypasses OS pointer acceleration/smoothing when the cursor is disabled
+    // (i.e. during Play-mode mouse-look) — most noticeable exactly in this
+    // kind of FPS-camera scenario.
+    if (glfwRawMouseMotionSupported()) {
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
+
     EditorUI editorUI;
     editorUI.Initialize(window);
     Log::Info("OpenGL loaded: {}", (const char*)glGetString(GL_VERSION));
@@ -182,6 +190,22 @@ int main() {
     scene.Registry.emplace<PlayerTag>(playerEntity);
     scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
 
+    // Simple placeholder visual so the player isn't fully invisible in Play mode.
+    // Child of playerEntity so it inherits position via the existing parent-chain
+    // GetWorldMatrix logic; local offset lifts it from feet-level (where
+    // CharacterController reports position) up to roughly the capsule's actual
+    // center height — see kCapsuleHalfHeight/kCapsuleRadius in CharacterController.
+    auto playerVisualEntity = scene.CreateEntity();
+    auto& playerVisualTransform = scene.Registry.get<Transform>(playerVisualEntity);
+    playerVisualTransform.Parent = playerEntity;
+    playerVisualTransform.Position = glm::vec3(0.0f, 1.25f, 0.0f);
+    playerVisualTransform.Scale = glm::vec3(0.35f, 1.25f, 0.35f); // cube.obj spans -1..1, so half of the desired 0.7x2.5x0.7 footprint
+    scene.Registry.emplace<MeshRenderer>(
+        playerVisualEntity,
+        SceneLoader::GetOrLoadModel("models/cube.obj"),
+        defaultMaterial
+    );
+
     CharacterController characterController(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
     const glm::vec3 kPlayerSpawnPosition(0.0f, 1.0f, 0.0f);
     FollowCamera followCamera;
@@ -195,23 +219,10 @@ int main() {
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 
-    auto groundEntity = scene.CreateEntity();
-    auto& groundTransform = scene.Registry.get<Transform>(groundEntity);
-    groundTransform.Position = glm::vec3(0.0f, -1.0f, 0.0f);
-    groundTransform.Scale = glm::vec3(10.0f, 0.25f, 10.0f);
-    scene.Registry.emplace<MeshRenderer>(
-        groundEntity,
-        SceneLoader::GetOrLoadModel("models/cube.obj"),
-        defaultMaterial
-    );
-    scene.Registry.emplace<RigidBody>(
-        groundEntity,
-        physicsWorld.CreateBoxBody(glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(10.0f, 0.25f, 10.0f), true),
-        true,
-        PhysicsShapeType::Box,
-        glm::vec3(10.0f, 0.25f, 10.0f),
-        0.5f
-    );
+    // NOTE: removed the standalone groundEntity that used to live here.
+    // ChunkManager + SceneLoader::LoadChunk now spawn a ground plate per
+    // streamed chunk (see SceneLoader.cpp), covering the same area — keeping
+    // both would recreate the overlapping-collider bug from earlier.
 
     GridRenderer gridRenderer;
     float lastFrameTime = 0.0f;
@@ -220,6 +231,9 @@ int main() {
     bool f11WasPressed = false;
     bool spaceWasPressed = false; // edge-detects jump so holding Space doesn't re-trigger every frame
     bool escWasPressed = false;   // edge-detects Escape so it toggles Play mode off exactly once per press
+
+    Skybox skybox;
+    constexpr glm::vec3 kDirLightDirection(-0.3f, -1.0f, -0.3f); // pulled out so sky + shading share one source of truth
 
     WindowUserData userData{
         &camera, &followCamera, &playMode, &aspectRatio, &editorUI,
@@ -232,12 +246,18 @@ int main() {
         ImGuiIO& io = ImGui::GetIO();
         io.AddMousePosEvent((float)xpos, (float)ypos);
 
-        if (io.WantCaptureMouse) return;
-
         auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
 
         if (*userData->playMode) {
-            // Play mode: mouse always drives the follow camera, no click-hold needed.
+            // Play mode owns the cursor unconditionally. The cursor is
+            // GLFW_CURSOR_DISABLED (hidden/virtual) the entire time we're in
+            // Play, and every editor panel is still drawn (just unclickable
+            // by feel) — so the invisible cursor's virtual position can land
+            // over a panel rect at any moment. Checking io.WantCaptureMouse
+            // before this branch used to silently drop that frame's look
+            // delta whenever that happened, which is what caused the
+            // stutter: the next frame would then jump by the accumulated
+            // distance instead of moving smoothly.
             if (*userData->mouseLookNeedsReset) {
                 *userData->lastCursorX = xpos;
                 *userData->lastCursorY = ypos;
@@ -250,6 +270,8 @@ int main() {
             userData->followCamera->ProcessMouseMovement(xOffset, yOffset);
             return;
         }
+
+        if (io.WantCaptureMouse) return;
 
         Camera* cam = userData->camera;
 
@@ -430,11 +452,35 @@ int main() {
             scene.Registry.get<Transform>(playerEntity).Position = playerPos;
             followCamera.SetTarget(playerPos);
 
+            // Pull the camera in if something (wall, terrain) is between it and
+            // the player, so backing into a corner doesn't clip the view through geometry.
+            {
+                glm::vec3 rayOrigin = followCamera.GetTarget();
+                glm::vec3 toCamera = followCamera.Position - rayOrigin;
+                float desiredDistance = glm::length(toCamera);
+                if (desiredDistance > 0.001f) {
+                    glm::vec3 rayDir = toCamera / desiredDistance;
+                    glm::vec3 hitPoint;
+                    if (physicsWorld.RaycastClosest(rayOrigin, rayDir, desiredDistance, hitPoint)) {
+                        constexpr float kCameraCollisionBuffer = 0.2f;
+                        followCamera.Position = hitPoint - rayDir * kCameraCollisionBuffer;
+                    }
+                }
+            }
+
             viewerPosition = playerPos; // stream chunks / query around the player, not the idle editor camera
         }
-
-        glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+        glClearColor(0.35f, 0.35f, 0.38f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        const glm::mat4 activeView = playMode ? followCamera.GetViewMatrix() : camera.GetViewMatrix();
+        const glm::mat4 activeProjection = playMode
+          ? followCamera.GetProjectionMatrix(aspectRatio)
+          : camera.GetProjectionMatrix(aspectRatio);
+        const glm::vec3 activeCameraPosition = playMode ? followCamera.Position : camera.Position;
+
+        skybox.Render(activeView, activeProjection, activeCameraPosition, -kDirLightDirection);
+
 
         // Grid is an editor-only reference tool and only knows how to read
         // the free-fly Camera type — skip it in Play mode rather than have
@@ -466,7 +512,7 @@ int main() {
             spatialGrid.Insert(entity, posView.get<Transform>(entity).Position);
         }
 
-        chunkManager.Update(viewerPosition, scene);
+        chunkManager.Update(viewerPosition, scene, physicsWorld);
 
         auto rigidBodyView = scene.Registry.view<Transform, RigidBody>();
         for (auto entity : rigidBodyView) {
@@ -519,6 +565,11 @@ int main() {
                 // Just pressed Play — respawn rather than resume mid-fall from last session.
                 characterController.SetPosition(kPlayerSpawnPosition);
                 scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
+
+                // Make sure ground actually exists at the spawn point before physics
+                // starts stepping again — otherwise there's a frame (or more, if the
+                // area was previously unloaded) where the character falls with nothing under it.
+                chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld);
             }
         }
 
