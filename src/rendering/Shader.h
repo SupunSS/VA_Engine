@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <glm/glm.hpp>
+#include <vector>
 
 class Shader {
 public:
@@ -16,6 +17,7 @@ public:
     void SetVec2(const std::string& name, const glm::vec2& value) const;
     void SetInt(const std::string& name, int value) const;
     void SetFloat(const std::string& name, float value) const;
+    void SetMat4Array(const std::string& name, const std::vector<glm::mat4>& matrices) const;
 
 private:
     unsigned int Compile(unsigned int type, const std::string& source);

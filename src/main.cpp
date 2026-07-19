@@ -15,12 +15,14 @@
 #include "rendering/Camera.h"
 #include "rendering/Texture.h"
 #include "rendering/Model.h"
+#include "rendering/Animator.h"
 #include "scene/Scene.h"
 #include "scene/Components.h"
 #include "scene/SpatialGrid.h"
 #include "scene/SceneLoader.h"
 #include "scripting/ScriptEngine.h"
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include "scene/ChunkManager.h"
 #include "editor/EditorUI.h"
 #include <imgui.h>
@@ -254,7 +256,8 @@ int main() {
     constexpr float kBloomKnee = 0.5f;        // soft transition width around the threshold
     constexpr float kBloomIntensity = 0.3f;   // how much blurred glow gets added back
     constexpr int   kBloomBlurPasses = 5;     // ping-pong iterations (10 total blur draws)
-    constexpr float kExposure = 0.6f;
+    constexpr float kExposure = 0.6f;         // overall scene exposure before tonemapping
+
     auto defaultMaterial = std::make_shared<Material>();
     defaultMaterial->albedoTint = glm::vec3(1.0f, 1.0f, 1.0f);
 
@@ -268,16 +271,27 @@ int main() {
     scene.Registry.emplace<PlayerTag>(playerEntity);
     scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
 
+    // --- Player visual: rigged mesh + skeletal animation --------------------
     auto playerVisualEntity = scene.CreateEntity();
     auto& playerVisualTransform = scene.Registry.get<Transform>(playerVisualEntity);
     playerVisualTransform.Parent = playerEntity;
-    playerVisualTransform.Position = glm::vec3(0.0f, 1.25f, 0.0f);
-    playerVisualTransform.Scale = glm::vec3(0.35f, 1.25f, 0.35f);
-    scene.Registry.emplace<MeshRenderer>(
-        playerVisualEntity,
-        SceneLoader::GetOrLoadModel("models/cube.obj"),
-        defaultMaterial
-    );
+    playerVisualTransform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
+    // Mixamo exports in centimeters — a ~170cm-tall humanoid needs scaling
+    // down by 0.01 to match this engine's meter-scale units.
+    playerVisualTransform.Scale = glm::vec3(0.01f, 0.01f, 0.01f);
+
+    auto playerModel = SceneLoader::GetOrLoadModel("models/player/player.fbx");
+    scene.Registry.emplace<MeshRenderer>(playerVisualEntity, playerModel, nullptr);
+
+    auto playerIdleAnim = playerModel->LoadAnimation("models/player/Idle.fbx");
+    auto playerWalkAnim = playerModel->LoadAnimation("models/player/Walking.fbx");
+    auto playerRunAnim  = playerModel->LoadAnimation("models/player/Running.fbx");
+
+    Animator playerAnimator;
+    playerAnimator.PlayAnimation(playerIdleAnim);
+
+    enum class PlayerAnimState { Idle, Walk, Run };
+    PlayerAnimState currentPlayerAnimState = PlayerAnimState::Idle;
 
     CharacterController characterController(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
     const glm::vec3 kPlayerSpawnPosition(0.0f, 1.0f, 0.0f);
@@ -496,6 +510,10 @@ int main() {
             SetCursorMode(window, GLFW_CURSOR_NORMAL, false);
             mouseLookEnabled = false;
             mouseLookNeedsReset = true;
+
+            // Snap back to the idle animation state immediately upon exiting via ESC
+            currentPlayerAnimState = PlayerAnimState::Idle;
+            playerAnimator.PlayAnimation(playerIdleAnim);
         }
         escWasPressed = escHeld;
 
@@ -525,12 +543,42 @@ int main() {
             if (d) wishDir += followCamera.GetRightXZ();
             if (a) wishDir -= followCamera.GetRightXZ();
 
+            // --- Face the player toward movement direction ---
+            if (glm::length(wishDir) > 0.001f) {
+                glm::vec3 facingDir = glm::normalize(wishDir);
+                // atan2(x, z): this engine's forward is -Z (Camera's yaw=-90
+                // gives front=(0,0,-1)), so this yields the correct yaw for
+                // "facing where you're walking."
+                float targetYaw = std::atan2(facingDir.x, facingDir.z);
+                glm::quat targetRotation = glm::angleAxis(targetYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+
+                // Slerp toward the target facing instead of snapping, so
+                // strafing/backward movement doesn't instantly flip the model.
+                glm::quat& currentRotation = scene.Registry.get<Transform>(playerEntity).Rotation;
+                constexpr float kTurnSpeed = 12.0f; // higher = snappier turning
+                currentRotation = glm::slerp(currentRotation, targetRotation, glm::min(kTurnSpeed * deltaTime, 1.0f));
+            }
+
             bool spaceHeld = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
             bool jumpEdge = spaceHeld && !spaceWasPressed;
             spaceWasPressed = spaceHeld;
 
             characterController.Sprinting = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
             characterController.Update(deltaTime, wishDir, jumpEdge);
+
+            // --- Locomotion animation state switch ---
+            PlayerAnimState desiredAnimState = PlayerAnimState::Idle;
+            if (glm::length(wishDir) > 0.001f) {
+                desiredAnimState = characterController.Sprinting ? PlayerAnimState::Run : PlayerAnimState::Walk;
+            }
+            if (desiredAnimState != currentPlayerAnimState) {
+                currentPlayerAnimState = desiredAnimState;
+                switch (currentPlayerAnimState) {
+                    case PlayerAnimState::Idle: playerAnimator.PlayAnimation(playerIdleAnim); break;
+                    case PlayerAnimState::Walk: playerAnimator.PlayAnimation(playerWalkAnim); break;
+                    case PlayerAnimState::Run:  playerAnimator.PlayAnimation(playerRunAnim);  break;
+                }
+            }
 
             glm::vec3 playerPos = characterController.GetPosition();
             scene.Registry.get<Transform>(playerEntity).Position = playerPos;
@@ -552,6 +600,12 @@ int main() {
 
             viewerPosition = playerPos;
         }
+
+        // Only advance animation time while in play mode; otherwise tick by
+        // 0.0f to freeze on whatever pose is currently showing (idle, after
+        // the resets above).
+        float frameTime = playMode ? deltaTime : 0.0f;
+        playerAnimator.UpdateAnimation(frameTime);
 
         // --- Pass 1: render the scene into the HDR framebuffer -------------
         glBindFramebuffer(GL_FRAMEBUFFER, postProcess.hdrFBO);
@@ -619,6 +673,10 @@ int main() {
             glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
             triangleShader.SetMat4("uModel", worldMatrix);
 
+            if (entity == playerVisualEntity) {
+                triangleShader.SetMat4Array("uBoneMatrices", playerAnimator.GetFinalBoneMatrices());
+            }
+
             renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
         }
 
@@ -664,7 +722,7 @@ int main() {
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, sourceTexture);
         bloomCompositeShader.SetInt("uBloomTexture", 1);
-        bloomCompositeShader.SetFloat("uBloomIntensity", kBloomIntensity );
+        bloomCompositeShader.SetFloat("uBloomIntensity", kBloomIntensity);
         bloomCompositeShader.SetFloat("uExposure", kExposure);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
@@ -690,6 +748,10 @@ int main() {
                 characterController.SetPosition(kPlayerSpawnPosition);
                 scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
                 chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld);
+            } else {
+                // Snap back to the idle animation state immediately upon exiting via Editor UI
+                currentPlayerAnimState = PlayerAnimState::Idle;
+                playerAnimator.PlayAnimation(playerIdleAnim);
             }
         }
 

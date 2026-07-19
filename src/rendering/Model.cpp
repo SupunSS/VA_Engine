@@ -1,10 +1,12 @@
 #include "Model.h"
+#include "Animation.h"
 #include "ResourceManager.h"
 #include "../core/Log.h"
 #include "../core/Assert.h"
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/material.h>
+#include <assimp/anim.h>
 #include <filesystem>
 
 namespace {
@@ -49,6 +51,15 @@ std::filesystem::path ResolveTexturePath(const std::filesystem::path& modelDirec
     }
 
     return candidate;
+}
+
+glm::mat4 ConvertMatrix(const aiMatrix4x4& m) {
+    glm::mat4 result;
+    result[0][0] = m.a1; result[1][0] = m.a2; result[2][0] = m.a3; result[3][0] = m.a4;
+    result[0][1] = m.b1; result[1][1] = m.b2; result[2][1] = m.b3; result[3][1] = m.b4;
+    result[0][2] = m.c1; result[1][2] = m.c2; result[2][2] = m.c3; result[3][2] = m.c4;
+    result[0][3] = m.d1; result[1][3] = m.d2; result[2][3] = m.d3; result[3][3] = m.d4;
+    return result;
 }
 }
 
@@ -129,6 +140,38 @@ std::shared_ptr<Material> Model::LoadMaterialForMesh(aiMesh* mesh, const aiScene
     return material;
 }
 
+void Model::ExtractBoneWeights(std::vector<Vertex>& vertices, aiMesh* mesh, const aiScene* scene) {
+    for (unsigned int boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex) {
+        aiBone* bone = mesh->mBones[boneIndex];
+        std::string boneName = bone->mName.C_Str();
+
+        int boneID;
+        auto it = m_BoneInfoMap.find(boneName);
+        if (it == m_BoneInfoMap.end()) {
+            BoneInfo newBoneInfo;
+            newBoneInfo.id = m_BoneCount;
+            newBoneInfo.offsetMatrix = ConvertMatrix(bone->mOffsetMatrix);
+            m_BoneInfoMap[boneName] = newBoneInfo;
+            boneID = m_BoneCount;
+            m_BoneCount++;
+        } else {
+            boneID = it->second.id;
+        }
+
+        // Each weight entry tells us: "this bone influences this vertex by
+        // this much" — the inverse of how the Vertex struct stores it
+        // (vertex -> list of bones), so we scatter into vertices here.
+        aiVertexWeight* weights = bone->mWeights;
+        for (unsigned int weightIndex = 0; weightIndex < bone->mNumWeights; ++weightIndex) {
+            unsigned int vertexId = weights[weightIndex].mVertexId;
+            float weight = weights[weightIndex].mWeight;
+            if (vertexId < vertices.size()) {
+                vertices[vertexId].AddBoneData(boneID, weight);
+            }
+        }
+    }
+}
+
 std::unique_ptr<Mesh> Model::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
@@ -155,6 +198,9 @@ std::unique_ptr<Mesh> Model::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
             vertex.Tangent = glm::vec3(0.0f);
         }
 
+        // BoneIDs/BoneWeights already default to {-1,-1,-1,-1} / {0,0,0,0}
+        // via the in-class initializers — ExtractBoneWeights fills them in
+        // below for meshes that actually have a skeleton.
         vertices.push_back(vertex);
     }
 
@@ -165,9 +211,23 @@ std::unique_ptr<Mesh> Model::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
         }
     }
 
+    ExtractBoneWeights(vertices, mesh, scene);
+
     auto meshObj = std::make_unique<Mesh>(vertices, indices);
     meshObj->material = LoadMaterialForMesh(mesh, scene);
     return meshObj;
+}
+
+std::shared_ptr<Animation> Model::LoadAnimation(const std::string& path) {
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate);
+
+    if (!scene || !scene->mRootNode || scene->mNumAnimations == 0) {
+        Log::Warn("Failed to load animation {}: {}", path, importer.GetErrorString());
+        return nullptr;
+    }
+
+    return std::make_shared<Animation>(scene, scene->mAnimations[0], m_BoneInfoMap, m_BoneCount);
 }
 
 void Model::Draw(const Shader& shader, const Material* overrideMaterial) const {

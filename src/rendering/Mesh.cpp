@@ -1,7 +1,7 @@
 #include "Mesh.h"
 #include <glad/glad.h>
 
-Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices)
+Mesh::Mesh(std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices)
     : m_vertices(vertices), m_indices(indices) {
     SetupMesh();
 }
@@ -40,6 +40,15 @@ void Mesh::SetupMesh() {
     // tangent
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Tangent));
+
+    // bone IDs — integer attribute, must use glVertexAttribIPointer (not the
+    // float version) or the driver silently reinterprets the int bits as floats
+    glEnableVertexAttribArray(4);
+    glVertexAttribIPointer(4, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, BoneIDs));
+
+    // bone weights
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, BoneWeights));
 
     glBindVertexArray(0);
 }

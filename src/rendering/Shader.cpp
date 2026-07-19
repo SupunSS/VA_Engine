@@ -104,3 +104,10 @@ std::string Shader::ReadFile(const std::string& path)
     return buffer.str();
 }
 
+void Shader::SetMat4Array(const std::string& name, const std::vector<glm::mat4>& matrices) const
+{
+    if (matrices.empty()) return;
+    int location = glGetUniformLocation(m_programID, name.c_str());
+    glUniformMatrix4fv(location, static_cast<GLsizei>(matrices.size()), GL_FALSE, glm::value_ptr(matrices[0]));
+}
+
