@@ -1,5 +1,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 #include "core/Log.h"
 #include "core/Assert.h"
 #include "core/memory/StackAllocator.h"
@@ -7,6 +9,8 @@
 #include "core/jobs/JobSystem.h"
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <algorithm>
 #include "rendering/Shader.h"
 #include "rendering/Camera.h"
 #include "rendering/Texture.h"
@@ -38,11 +42,6 @@ struct WindowUserData {
     bool* mouseLookNeedsReset;
     double* lastCursorX;
     double* lastCursorY;
-    bool* isFullscreen;
-    int* windowedX;
-    int* windowedY;
-    int* windowedWidth;
-    int* windowedHeight;
 };
 
 void SetCursorMode(GLFWwindow* window, int cursorMode, bool centerCursor)
@@ -59,37 +58,113 @@ void SetCursorMode(GLFWwindow* window, int cursorMode, bool centerCursor)
     glfwSetCursorPos(window, windowWidth * 0.5, windowHeight * 0.5);
 }
 
-void ToggleFullscreenWindow(GLFWwindow* window, WindowUserData* userData)
+glm::vec3 ComputeSunLightColor(const glm::vec3& sunDirection)
 {
-    if (userData == nullptr) {
-        return;
-    }
+    const glm::vec3 kRayleighCoeff(5.5e-6f, 13.0e-6f, 22.4e-6f);
+    const float kMieCoeff = 21e-6f * 1.1f;
+    const float kPathReference = 8000.0f;
 
-    if (*userData->isFullscreen) {
-        glfwSetWindowMonitor(window, nullptr, *userData->windowedX, *userData->windowedY,
-            *userData->windowedWidth, *userData->windowedHeight, GLFW_DONT_CARE);
-        *userData->isFullscreen = false;
-    } else {
-        glfwGetWindowPos(window, userData->windowedX, userData->windowedY);
-        glfwGetWindowSize(window, userData->windowedWidth, userData->windowedHeight);
+    float sinElevation = glm::max(sunDirection.y, 0.01f);
+    float pathLength = kPathReference / sinElevation;
 
-        GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
-        const GLFWvidmode* videoMode = glfwGetVideoMode(primaryMonitor);
-        if (videoMode != nullptr) {
-            glfwSetWindowMonitor(window, primaryMonitor, 0, 0, videoMode->width, videoMode->height,
-                videoMode->refreshRate);
-        } else {
-            glfwSetWindowMonitor(window, primaryMonitor, 0, 0, 1280, 720, GLFW_DONT_CARE);
-        }
+    glm::vec3 extinction = kRayleighCoeff + glm::vec3(kMieCoeff);
+    glm::vec3 transmittance(
+        std::exp(-extinction.x * pathLength),
+        std::exp(-extinction.y * pathLength),
+        std::exp(-extinction.z * pathLength));
 
-        *userData->isFullscreen = true;
-    }
-
-    // In Play mode the cursor is always locked; in editor mode it's only
-    // locked while the free-fly camera's click-hold look is active.
-    const bool shouldLockCursor = (*userData->playMode) || *userData->mouseLookEnabled;
-    SetCursorMode(window, shouldLockCursor ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL, shouldLockCursor);
+    const glm::vec3 kBaseSunColor(1.0f, 0.96f, 0.9f);
+    return kBaseSunColor * transmittance;
 }
+
+// --- Bloom post-process framebuffers ---------------------------------------
+// hdrFBO: full-resolution scene render target (RGBA16F, linear HDR values,
+// no tonemapping applied by sky.frag/triangle.frag anymore) + a depth
+// renderbuffer so normal depth-tested scene rendering still works.
+// brightFBO / pingpongFBO: half-resolution targets used only for the bloom
+// extraction + blur — bloom is inherently soft, so full-res blur would cost
+// far more than it's worth visually.
+struct PostProcessTargets {
+    GLuint hdrFBO = 0, hdrColorTexture = 0, hdrDepthRBO = 0;
+    GLuint brightFBO = 0, brightTexture = 0;
+    GLuint pingpongFBO[2] = { 0, 0 };
+    GLuint pingpongTexture[2] = { 0, 0 };
+    int fullWidth = 0, fullHeight = 0;
+    int halfWidth = 0, halfHeight = 0;
+};
+
+void DestroyPostProcessTargets(PostProcessTargets& t)
+{
+    if (t.hdrColorTexture) glDeleteTextures(1, &t.hdrColorTexture);
+    if (t.hdrDepthRBO) glDeleteRenderbuffers(1, &t.hdrDepthRBO);
+    if (t.hdrFBO) glDeleteFramebuffers(1, &t.hdrFBO);
+    if (t.brightTexture) glDeleteTextures(1, &t.brightTexture);
+    if (t.brightFBO) glDeleteFramebuffers(1, &t.brightFBO);
+    for (int i = 0; i < 2; ++i) {
+        if (t.pingpongTexture[i]) glDeleteTextures(1, &t.pingpongTexture[i]);
+        if (t.pingpongFBO[i]) glDeleteFramebuffers(1, &t.pingpongFBO[i]);
+    }
+    t = PostProcessTargets{};
+}
+
+GLuint CreateHalfResColorTarget(GLuint& fboOut, int width, int height)
+{
+    glGenFramebuffers(1, &fboOut);
+    glBindFramebuffer(GL_FRAMEBUFFER, fboOut);
+
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+
+    ENGINE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
+                  "Bloom half-res framebuffer incomplete");
+
+    return tex;
+}
+
+void CreatePostProcessTargets(PostProcessTargets& t, int width, int height)
+{
+    DestroyPostProcessTargets(t);
+    t.fullWidth = std::max(1, width);
+    t.fullHeight = std::max(1, height);
+    t.halfWidth = std::max(1, width / 2);
+    t.halfHeight = std::max(1, height / 2);
+
+    // Full-res HDR scene target.
+    glGenFramebuffers(1, &t.hdrFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, t.hdrFBO);
+
+    glGenTextures(1, &t.hdrColorTexture);
+    glBindTexture(GL_TEXTURE_2D, t.hdrColorTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, t.fullWidth, t.fullHeight, 0, GL_RGBA, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.hdrColorTexture, 0);
+
+    glGenRenderbuffers(1, &t.hdrDepthRBO);
+    glBindRenderbuffer(GL_RENDERBUFFER, t.hdrDepthRBO);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, t.fullWidth, t.fullHeight);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, t.hdrDepthRBO);
+
+    ENGINE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
+                  "HDR scene framebuffer incomplete");
+
+    // Half-res bloom extraction + ping-pong blur targets.
+    t.brightTexture = CreateHalfResColorTarget(t.brightFBO, t.halfWidth, t.halfHeight);
+    t.pingpongTexture[0] = CreateHalfResColorTarget(t.pingpongFBO[0], t.halfWidth, t.halfHeight);
+    t.pingpongTexture[1] = CreateHalfResColorTarget(t.pingpongFBO[1], t.halfWidth, t.halfHeight);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 } // namespace
 
 int main() {
@@ -132,25 +207,13 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); 
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     GLFWwindow* window = glfwCreateWindow(1280, 720, "VA Engine", nullptr, nullptr);
     ENGINE_ASSERT(window != nullptr, "Failed to create GLFW window");
 
     glfwMakeContextCurrent(window);
     ENGINE_ASSERT(gladLoadGLLoader((GLADloadproc)glfwGetProcAddress), "Failed to initialize GLAD");
-
-    glfwMaximizeWindow(window);  
-    glfwShowWindow(window);       
-    glfwFocusWindow(window);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-
-    // Bypasses OS pointer acceleration/smoothing when the cursor is disabled
-    // (i.e. during Play-mode mouse-look) — most noticeable exactly in this
-    // kind of FPS-camera scenario.
-    if (glfwRawMouseMotionSupported()) {
-        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-    }
 
     EditorUI editorUI;
     editorUI.Initialize(window);
@@ -166,40 +229,50 @@ int main() {
     bool mouseLookNeedsReset = true;
     double lastCursorX = 0.0;
     double lastCursorY = 0.0;
-    bool isFullscreen = false;
-    int windowedX = 0;
-    int windowedY = 0;
-    int windowedWidth = 1280;
-    int windowedHeight = 720;
 
     Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
 
+    // Bloom pipeline shaders — all three reuse sky.vert as their vertex
+    // stage, since it's already the engine's no-VBO fullscreen triangle.
+    Shader bloomThresholdShader("shaders/sky.vert", "shaders/bloom_threshold.frag");
+    Shader bloomBlurShader("shaders/sky.vert", "shaders/bloom_blur.frag");
+    Shader bloomCompositeShader("shaders/sky.vert", "shaders/bloom_composite.frag");
+
+    // Empty VAO required by core-profile GL to issue a draw call even
+    // though the fullscreen triangle vertex shader has no vertex attributes
+    // (positions are computed purely from gl_VertexID).
+    GLuint fullscreenVAO = 0;
+    glGenVertexArrays(1, &fullscreenVAO);
+
+    PostProcessTargets postProcess;
+    CreatePostProcessTargets(postProcess, width, height);
+    int lastKnownFramebufferWidth = width;
+    int lastKnownFramebufferHeight = height;
+
+    // Bloom tuning constants — start here if the effect looks too weak/strong.
+    constexpr float kBloomThreshold = 1.0f;   // luminance above this starts blooming
+    constexpr float kBloomKnee = 0.5f;        // soft transition width around the threshold
+    constexpr float kBloomIntensity = 0.3f;   // how much blurred glow gets added back
+    constexpr int   kBloomBlurPasses = 5;     // ping-pong iterations (10 total blur draws)
+    constexpr float kExposure = 0.6f;
     auto defaultMaterial = std::make_shared<Material>();
-    defaultMaterial->albedoTint = glm::vec3(0.5f, 0.5f, 0.5f);
+    defaultMaterial->albedoTint = glm::vec3(1.0f, 1.0f, 1.0f);
+
+    const glm::vec3 kDirLightDirection(-0.3f, -1.0f, -0.3f);
 
     Scene scene;
     SpatialGrid spatialGrid(50.0f);
     PhysicsWorld physicsWorld;
-    // NOTE: removed physicsWorld.AddStaticGroundPlane(0.0f) here — it created
-    // an invisible collider (~y -1.0 to 0.0) that overlapped the visible
-    // groundEntity's own rigid body below (~y -1.25 to -0.75), which could
-    // snag the character controller on a surface that isn't the mesh you see.
-    // The groundEntity's RigidBody is now the only ground collider.
 
     auto playerEntity = scene.CreateEntity();
     scene.Registry.emplace<PlayerTag>(playerEntity);
     scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
 
-    // Simple placeholder visual so the player isn't fully invisible in Play mode.
-    // Child of playerEntity so it inherits position via the existing parent-chain
-    // GetWorldMatrix logic; local offset lifts it from feet-level (where
-    // CharacterController reports position) up to roughly the capsule's actual
-    // center height — see kCapsuleHalfHeight/kCapsuleRadius in CharacterController.
     auto playerVisualEntity = scene.CreateEntity();
     auto& playerVisualTransform = scene.Registry.get<Transform>(playerVisualEntity);
     playerVisualTransform.Parent = playerEntity;
     playerVisualTransform.Position = glm::vec3(0.0f, 1.25f, 0.0f);
-    playerVisualTransform.Scale = glm::vec3(0.35f, 1.25f, 0.35f); // cube.obj spans -1..1, so half of the desired 0.7x2.5x0.7 footprint
+    playerVisualTransform.Scale = glm::vec3(0.35f, 1.25f, 0.35f);
     scene.Registry.emplace<MeshRenderer>(
         playerVisualEntity,
         SceneLoader::GetOrLoadModel("models/cube.obj"),
@@ -211,7 +284,7 @@ int main() {
     FollowCamera followCamera;
     bool playMode = false;
 
-    ChunkManager chunkManager(50.0f, 1); // 50-unit chunks, load 1 chunk radius around viewer
+    ChunkManager chunkManager(50.0f, 1);
 
     ScriptEngine scriptEngine;
     scriptEngine.Initialize(&scene);
@@ -219,26 +292,16 @@ int main() {
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 
-    // NOTE: removed the standalone groundEntity that used to live here.
-    // ChunkManager + SceneLoader::LoadChunk now spawn a ground plate per
-    // streamed chunk (see SceneLoader.cpp), covering the same area — keeping
-    // both would recreate the overlapping-collider bug from earlier.
-
     GridRenderer gridRenderer;
+    Skybox skybox;
     float lastFrameTime = 0.0f;
     bool altRWasPressed = false;
-    bool altEnterWasPressed = false;
-    bool f11WasPressed = false;
-    bool spaceWasPressed = false; // edge-detects jump so holding Space doesn't re-trigger every frame
-    bool escWasPressed = false;   // edge-detects Escape so it toggles Play mode off exactly once per press
-
-    Skybox skybox;
-    constexpr glm::vec3 kDirLightDirection(-0.3f, -1.0f, -0.3f); // pulled out so sky + shading share one source of truth
+    bool spaceWasPressed = false;
+    bool escWasPressed = false;
 
     WindowUserData userData{
         &camera, &followCamera, &playMode, &aspectRatio, &editorUI,
-        &mouseLookEnabled, &mouseLookNeedsReset, &lastCursorX, &lastCursorY,
-        &isFullscreen, &windowedX, &windowedY, &windowedWidth, &windowedHeight
+        &mouseLookEnabled, &mouseLookNeedsReset, &lastCursorX, &lastCursorY
     };
     glfwSetWindowUserPointer(window, &userData);
 
@@ -249,15 +312,6 @@ int main() {
         auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
 
         if (*userData->playMode) {
-            // Play mode owns the cursor unconditionally. The cursor is
-            // GLFW_CURSOR_DISABLED (hidden/virtual) the entire time we're in
-            // Play, and every editor panel is still drawn (just unclickable
-            // by feel) — so the invisible cursor's virtual position can land
-            // over a panel rect at any moment. Checking io.WantCaptureMouse
-            // before this branch used to silently drop that frame's look
-            // delta whenever that happened, which is what caused the
-            // stutter: the next frame would then jump by the accumulated
-            // distance instead of moving smoothly.
             if (*userData->mouseLookNeedsReset) {
                 *userData->lastCursorX = xpos;
                 *userData->lastCursorY = ypos;
@@ -300,7 +354,7 @@ int main() {
 
         auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
 
-        if (*userData->playMode) return; // Play mode owns the cursor entirely; editor click-hold look is irrelevant.
+        if (*userData->playMode) return;
 
         if (io.WantCaptureMouse) {
             if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
@@ -350,6 +404,10 @@ int main() {
 
         auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
         *userData->aspectRatio = (float)newWidth / (float)newHeight;
+        // Post-process framebuffer resizing is handled in the main loop
+        // (comparing against lastKnownFramebufferWidth/Height) rather than
+        // here, since recreating GL objects from inside a GLFW callback —
+        // which can fire mid-frame — is asking for trouble.
     });
 
     glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
@@ -375,6 +433,24 @@ int main() {
         }
     });
 
+    glfwShowWindow(window);
+    glfwMaximizeWindow(window);
+    glfwFocusWindow(window);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+    // Windows sometimes fails to compute non-client frame extents for a
+    // window that was hidden at maximize time. SWP_FRAMECHANGED forces the
+    // OS to recalculate and redraw the title bar/border explicitly, rather
+    // than relying on maximize alone to trigger it. Must run after
+    // glfwMaximizeWindow so it recalculates against the final window state.
+    HWND hwnd = glfwGetWin32Window(window);
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+    if (glfwRawMouseMotionSupported()) {
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+    }
+
     Log::Info("Window created successfully");
 
     while (!glfwWindowShouldClose(window)) {
@@ -392,28 +468,28 @@ int main() {
         }
         editorUI.UpdatePerformanceStats(deltaTime, framebufferWidth, framebufferHeight);
 
+        // Recreate the HDR/bloom framebuffers if the window was resized —
+        // done here rather than in the resize callback itself (see comment
+        // on glfwSetFramebufferSizeCallback above).
+        if (framebufferWidth > 0 && framebufferHeight > 0 &&
+            (framebufferWidth != lastKnownFramebufferWidth || framebufferHeight != lastKnownFramebufferHeight)) {
+            CreatePostProcessTargets(postProcess, framebufferWidth, framebufferHeight);
+            lastKnownFramebufferWidth = framebufferWidth;
+            lastKnownFramebufferHeight = framebufferHeight;
+        }
+
         const bool altHeld = glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
         const bool rHeld = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
-        const bool enterHeld = glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS;
-        const bool f11Held = glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS;
         if (altHeld && rHeld && !altRWasPressed) {
             editorUI.ToggleStatsOverlay();
         }
-        if ((altHeld && enterHeld && !altEnterWasPressed) || (f11Held && !f11WasPressed)) {
-            ToggleFullscreenWindow(window, &userData);
-        }
         altRWasPressed = altHeld && rHeld;
-        altEnterWasPressed = altHeld && enterHeld;
-        f11WasPressed = f11Held;
 
         bool w = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
         bool s = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
         bool a = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
         bool d = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
 
-        // Cursor is locked/hidden while playMode is true, which means ImGui
-        // can't register a click on the Player panel's Stop button — this is
-        // the only way out short of alt-tabbing.
         const bool escHeld = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
         if (escHeld && !escWasPressed && playMode) {
             playMode = false;
@@ -423,16 +499,24 @@ int main() {
         }
         escWasPressed = escHeld;
 
-        // Only the active mode's input actually moves anything, so free-fly
-        // camera and character controller can't fight over the same keys.
         if (!playMode) {
             camera.ProcessKeyboard(w, s, a, d, deltaTime);
+
+            constexpr float kVerticalSpeedMultiplier = 2.0f;
+            const bool spaceHeldEditor = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+            const bool ctrlHeldEditor = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                                         glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+            if (spaceHeldEditor) {
+                camera.Position += glm::vec3(0.0f, 1.0f, 0.0f) * camera.GetMoveSpeed() * kVerticalSpeedMultiplier * deltaTime;
+            }
+            if (ctrlHeldEditor) {
+                camera.Position -= glm::vec3(0.0f, 1.0f, 0.0f) * camera.GetMoveSpeed() * kVerticalSpeedMultiplier * deltaTime;
+            }
         }
 
-        // --- Physics: single step per frame -----------------------------
         physicsWorld.Step(deltaTime);
 
-        glm::vec3 viewerPosition = camera.Position; // default: editor mode streams around the free camera
+        glm::vec3 viewerPosition = camera.Position;
 
         if (playMode) {
             glm::vec3 wishDir(0.0f);
@@ -452,8 +536,6 @@ int main() {
             scene.Registry.get<Transform>(playerEntity).Position = playerPos;
             followCamera.SetTarget(playerPos);
 
-            // Pull the camera in if something (wall, terrain) is between it and
-            // the player, so backing into a corner doesn't clip the view through geometry.
             {
                 glm::vec3 rayOrigin = followCamera.GetTarget();
                 glm::vec3 toCamera = followCamera.Position - rayOrigin;
@@ -468,41 +550,35 @@ int main() {
                 }
             }
 
-            viewerPosition = playerPos; // stream chunks / query around the player, not the idle editor camera
+            viewerPosition = playerPos;
         }
+
+        // --- Pass 1: render the scene into the HDR framebuffer -------------
+        glBindFramebuffer(GL_FRAMEBUFFER, postProcess.hdrFBO);
+        glViewport(0, 0, postProcess.fullWidth, postProcess.fullHeight);
+        glEnable(GL_DEPTH_TEST);
         glClearColor(0.35f, 0.35f, 0.38f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         const glm::mat4 activeView = playMode ? followCamera.GetViewMatrix() : camera.GetViewMatrix();
-        const glm::mat4 activeProjection = playMode
-          ? followCamera.GetProjectionMatrix(aspectRatio)
-          : camera.GetProjectionMatrix(aspectRatio);
-        const glm::vec3 activeCameraPosition = playMode ? followCamera.Position : camera.Position;
+        const glm::mat4 activeProjection = playMode ? followCamera.GetProjectionMatrix(aspectRatio) : camera.GetProjectionMatrix(aspectRatio);
+        const glm::vec3 activeCameraPos = playMode ? followCamera.Position : camera.Position;
 
-        skybox.Render(activeView, activeProjection, activeCameraPosition, -kDirLightDirection);
+        skybox.Render(activeView, activeProjection, activeCameraPos, -kDirLightDirection);
 
-
-        // Grid is an editor-only reference tool and only knows how to read
-        // the free-fly Camera type — skip it in Play mode rather than have
-        // it silently desync from what's actually being rendered.
         if (!playMode) {
             gridRenderer.Render(camera, aspectRatio);
         }
 
+        const glm::vec3 dirLightColor = ComputeSunLightColor(-kDirLightDirection);
+
         triangleShader.Bind();
+        triangleShader.SetMat4("uView", activeView);
+        triangleShader.SetMat4("uProjection", activeProjection);
+        triangleShader.SetVec3("uViewPos", activeCameraPos);
 
-        if (playMode) {
-            triangleShader.SetMat4("uView", followCamera.GetViewMatrix());
-            triangleShader.SetMat4("uProjection", followCamera.GetProjectionMatrix(aspectRatio));
-            triangleShader.SetVec3("uViewPos", followCamera.Position);
-        } else {
-            triangleShader.SetMat4("uView", camera.GetViewMatrix());
-            triangleShader.SetMat4("uProjection", camera.GetProjectionMatrix(aspectRatio));
-            triangleShader.SetVec3("uViewPos", camera.Position);
-        }
-
-        triangleShader.SetVec3("uDirLightDirection", glm::vec3(-0.3f, -1.0f, -0.3f));
-        triangleShader.SetVec3("uDirLightColor", glm::vec3(0.6f, 0.6f, 0.55f));
+        triangleShader.SetVec3("uDirLightDirection", kDirLightDirection);
+        triangleShader.SetVec3("uDirLightColor", dirLightColor);
         triangleShader.SetVec3("uPointLightPos", glm::vec3(1.5f, 1.5f, 1.5f));
         triangleShader.SetVec3("uPointLightColor", glm::vec3(1.0f, 0.8f, 0.5f));
 
@@ -546,6 +622,56 @@ int main() {
             renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
         }
 
+        // --- Pass 2: bright-pass extraction (half-res) ----------------------
+        glDisable(GL_DEPTH_TEST);
+        glBindVertexArray(fullscreenVAO);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, postProcess.brightFBO);
+        glViewport(0, 0, postProcess.halfWidth, postProcess.halfHeight);
+        bloomThresholdShader.Bind();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, postProcess.hdrColorTexture);
+        bloomThresholdShader.SetInt("uSceneColor", 0);
+        bloomThresholdShader.SetFloat("uThreshold", kBloomThreshold);
+        bloomThresholdShader.SetFloat("uKnee", kBloomKnee);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        // --- Pass 3: ping-pong Gaussian blur (half-res) ----------------------
+        bool horizontal = true;
+        GLuint sourceTexture = postProcess.brightTexture;
+        bloomBlurShader.Bind();
+        bloomBlurShader.SetInt("uSourceTexture", 0);
+        bloomBlurShader.SetVec2("uTexelSize", glm::vec2(1.0f / postProcess.halfWidth, 1.0f / postProcess.halfHeight));
+
+        for (int i = 0; i < kBloomBlurPasses * 2; ++i) {
+            glBindFramebuffer(GL_FRAMEBUFFER, postProcess.pingpongFBO[horizontal ? 0 : 1]);
+            bloomBlurShader.SetInt("uHorizontal", horizontal ? 1 : 0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, sourceTexture);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+
+            sourceTexture = postProcess.pingpongTexture[horizontal ? 0 : 1];
+            horizontal = !horizontal;
+        }
+
+        // --- Pass 4: composite HDR scene + bloom, tonemap, to the screen ----
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, framebufferWidth, framebufferHeight);
+        bloomCompositeShader.Bind();
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, postProcess.hdrColorTexture);
+        bloomCompositeShader.SetInt("uSceneColor", 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, sourceTexture);
+        bloomCompositeShader.SetInt("uBloomTexture", 1);
+        bloomCompositeShader.SetFloat("uBloomIntensity", kBloomIntensity );
+        bloomCompositeShader.SetFloat("uExposure", kExposure);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        glEnable(GL_DEPTH_TEST);
+        glBindVertexArray(0);
+
+        // --- Editor UI: drawn last, directly onto the composited backbuffer -
         editorUI.BeginFrame();
         editorUI.DrawMenuBar();
         editorUI.DrawSceneHierarchy(scene);
@@ -556,19 +682,13 @@ int main() {
         bool playModeBeforePanel = playMode;
         editorUI.DrawPlayerPanel(playMode, &characterController);
         if (playMode != playModeBeforePanel) {
-            // Play/Stop was just toggled from the UI — (un)lock the cursor accordingly.
             SetCursorMode(window, playMode ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL, true);
             mouseLookEnabled = false;
             mouseLookNeedsReset = true;
 
             if (playMode) {
-                // Just pressed Play — respawn rather than resume mid-fall from last session.
                 characterController.SetPosition(kPlayerSpawnPosition);
                 scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
-
-                // Make sure ground actually exists at the spawn point before physics
-                // starts stepping again — otherwise there's a frame (or more, if the
-                // area was previously unloaded) where the character falls with nothing under it.
                 chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld);
             }
         }
@@ -579,6 +699,9 @@ int main() {
 
         glfwSwapBuffers(window);
     }
+
+    DestroyPostProcessTargets(postProcess);
+    glDeleteVertexArrays(1, &fullscreenVAO);
 
     glfwDestroyWindow(window);
     editorUI.Shutdown();
