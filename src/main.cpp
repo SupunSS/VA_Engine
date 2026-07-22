@@ -44,6 +44,9 @@ struct WindowUserData {
     bool* mouseLookNeedsReset;
     double* lastCursorX;
     double* lastCursorY;
+    bool* mouseLookDragged; // true once the mouse has moved noticeably since press —
+                            // used to tell "click to select" apart from "drag to look"
+    Scene* scene;           // needed so the mouse callback can run viewport picking
 };
 
 void SetCursorMode(GLFWwindow* window, int cursorMode, bool centerCursor)
@@ -229,6 +232,7 @@ int main() {
     float aspectRatio = (float)width / (float)height;
     bool mouseLookEnabled = false;
     bool mouseLookNeedsReset = true;
+    bool mouseLookDragged = false;
     double lastCursorX = 0.0;
     double lastCursorY = 0.0;
 
@@ -312,10 +316,12 @@ int main() {
     bool altRWasPressed = false;
     bool spaceWasPressed = false;
     bool escWasPressed = false;
+    bool deleteWasPressed = false; // edge-detects Delete so holding it doesn't repeat-delete
 
     WindowUserData userData{
         &camera, &followCamera, &playMode, &aspectRatio, &editorUI,
-        &mouseLookEnabled, &mouseLookNeedsReset, &lastCursorX, &lastCursorY
+        &mouseLookEnabled, &mouseLookNeedsReset, &lastCursorX, &lastCursorY,
+        &mouseLookDragged, &scene
     };
     glfwSetWindowUserPointer(window, &userData);
 
@@ -359,6 +365,13 @@ int main() {
         *userData->lastCursorX = xpos;
         *userData->lastCursorY = ypos;
 
+        // Any noticeable movement while the button is held means this is a
+        // look-drag, not a click — HandleViewportClick should be skipped on
+        // release in that case (see mouse button callback below).
+        if (std::abs(xOffset) > 1.0f || std::abs(yOffset) > 1.0f) {
+            *userData->mouseLookDragged = true;
+        }
+
         cam->ProcessMouseMovement(xOffset, yOffset);
     });
 
@@ -382,10 +395,26 @@ int main() {
             if (action == GLFW_PRESS) {
                 *userData->mouseLookEnabled = true;
                 *userData->mouseLookNeedsReset = true;
+                *userData->mouseLookDragged = false;
                 SetCursorMode(win, GLFW_CURSOR_DISABLED, true);
             } else if (action == GLFW_RELEASE) {
                 *userData->mouseLookEnabled = false;
                 SetCursorMode(win, GLFW_CURSOR_NORMAL, false);
+
+                // A quick press+release with no drag in between is a
+                // click-to-select rather than a look-pan. Skip picking
+                // entirely while the gizmo is actively being dragged, so
+                // releasing a gizmo handle doesn't also re-select whatever
+                // happens to be underneath it.
+                if (!*userData->mouseLookDragged && !userData->editorUI->IsGizmoActive()) {
+                    double mouseX = 0.0, mouseY = 0.0;
+                    glfwGetCursorPos(win, &mouseX, &mouseY);
+                    int fbWidth = 0, fbHeight = 0;
+                    glfwGetFramebufferSize(win, &fbWidth, &fbHeight);
+                    userData->editorUI->HandleViewportClick(
+                        *userData->scene, *userData->camera, *userData->aspectRatio,
+                        mouseX, mouseY, fbWidth, fbHeight);
+                }
             }
         }
     });
@@ -517,6 +546,16 @@ int main() {
         }
         escWasPressed = escHeld;
 
+        // Delete removes the currently selected entity — only active in
+        // editor mode, and only checked while no ImGui text field/widget
+        // wants keyboard input (so typing "Delete" in a rename box doesn't
+        // also nuke the selected entity).
+        const bool deleteHeld = glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS;
+        if (!playMode && deleteHeld && !deleteWasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
+            editorUI.DeleteSelectedEntity(scene, physicsWorld);
+        }
+        deleteWasPressed = deleteHeld;
+
         if (!playMode) {
             camera.ProcessKeyboard(w, s, a, d, deltaTime);
 
@@ -529,6 +568,16 @@ int main() {
             }
             if (ctrlHeldEditor) {
                 camera.Position -= glm::vec3(0.0f, 1.0f, 0.0f) * camera.GetMoveSpeed() * kVerticalSpeedMultiplier * deltaTime;
+            }
+
+            // Gizmo mode hotkeys — only in editor mode, and only when ImGui
+            // isn't already consuming keyboard input (typing in a field).
+            if (!ImGui::GetIO().WantCaptureKeyboard) {
+                if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+                    editorUI.CurrentGizmoOperation = GizmoOperation::Translate;
+                } else if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+                    editorUI.CurrentGizmoOperation = GizmoOperation::Rotate;
+                }
             }
         }
 
@@ -736,6 +785,8 @@ int main() {
         editorUI.DrawInspector(scene);
         editorUI.DrawAssetBrowser(scene);
         editorUI.DrawPhysicsPanel(scene, physicsWorld);
+        editorUI.DrawGizmoToolbar();
+        editorUI.DrawTransformGizmo(scene, physicsWorld, camera, aspectRatio);
 
         bool playModeBeforePanel = playMode;
         editorUI.DrawPlayerPanel(playMode, &characterController);

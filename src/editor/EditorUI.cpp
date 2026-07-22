@@ -6,17 +6,23 @@
 #include "../scene/SceneLoader.h"
 #include "../physics/PhysicsWorld.h"
 #include "../physics/CharacterController.h"
+#include "../rendering/Primitives.h"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
+#include <ImGuizmo.h>
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <system_error>
 #include <thread>
 #include <unordered_set>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include "../rendering/Material.h"
 
 namespace {
@@ -93,26 +99,59 @@ bool HasInvalidAssetNameCharacter(const std::string& name) {
     return name.find_first_of("\\/<>:\"|?*") != std::string::npos;
 }
 
-entt::entity SpawnPhysicsTestBody(Scene& scene, PhysicsWorld& physicsWorld, const glm::vec3& position, bool isStatic, PhysicsShapeType shapeType, float boxHalfExtent, float sphereRadius) {
+// Which shape the "Spawn Body" button in the Physics Test panel creates.
+// Separate from PhysicsShapeType (the actual Jolt collision primitive)
+// because there's no native pyramid collider yet — Pyramid uses a box
+// collision shape sized to its bounding box under the hood while looking
+// like a real pyramid visually. Sphere gets a real matching sphere collider.
+enum class TestBodyVisualShape {
+    Box,
+    Sphere,
+    Pyramid
+};
+
+entt::entity SpawnPhysicsTestBody(Scene& scene, PhysicsWorld& physicsWorld, const glm::vec3& position, bool isStatic,
+                                   TestBodyVisualShape visualShape, float boxHalfExtent, float sphereRadius) {
     auto entity = scene.CreateEntity();
     auto& transform = scene.Registry.get<Transform>(entity);
     transform.Position = position;
-
-    auto model = SceneLoader::GetOrLoadModel("models/cube.obj");
-    scene.Registry.emplace<MeshRenderer>(entity, model);
     scene.Registry.emplace<PhysicsTestBody>(entity);
 
-    if (shapeType == PhysicsShapeType::Box) {
-        const glm::vec3 halfExtents(boxHalfExtent);
-        transform.Scale = glm::vec3(halfExtents.x * 2.0f, halfExtents.y * 2.0f, halfExtents.z * 2.0f);
-        const auto bodyId = physicsWorld.CreateBoxBody(position, halfExtents, isStatic);
-        scene.Registry.emplace<RigidBody>(entity, bodyId, isStatic, shapeType, halfExtents, 0.5f);
+    if (visualShape == TestBodyVisualShape::Sphere) {
+        // CreateSphere already bakes the radius into its generated
+        // geometry, so Transform.Scale stays at 1 — scaling it further
+        // would double-apply the radius.
+        auto model = Primitives::CreateSphere(sphereRadius);
+        scene.Registry.emplace<MeshRenderer>(entity, model);
+        transform.Scale = glm::vec3(1.0f);
+
+        const auto bodyId = physicsWorld.CreateSphereBody(position, sphereRadius, isStatic);
+        scene.Registry.emplace<RigidBody>(entity, bodyId, isStatic, PhysicsShapeType::Sphere, glm::vec3(sphereRadius), sphereRadius);
         return entity;
     }
 
-    transform.Scale = glm::vec3(sphereRadius * 2.0f);
-    const auto bodyId = physicsWorld.CreateSphereBody(position, sphereRadius, isStatic);
-    scene.Registry.emplace<RigidBody>(entity, bodyId, isStatic, shapeType, glm::vec3(0.5f), sphereRadius);
+    if (visualShape == TestBodyVisualShape::Pyramid) {
+        const float pyramidBaseHalfWidth = boxHalfExtent;
+        const float pyramidHeight = boxHalfExtent * 2.0f;
+        auto model = Primitives::CreatePyramid(pyramidBaseHalfWidth, pyramidHeight);
+        scene.Registry.emplace<MeshRenderer>(entity, model);
+        transform.Scale = glm::vec3(1.0f);
+
+        // Box collider approximating the pyramid's bounding volume — see
+        // the TestBodyVisualShape comment above for why.
+        const glm::vec3 halfExtents(pyramidBaseHalfWidth, pyramidHeight * 0.5f, pyramidBaseHalfWidth);
+        const auto bodyId = physicsWorld.CreateBoxBody(position, halfExtents, isStatic);
+        scene.Registry.emplace<RigidBody>(entity, bodyId, isStatic, PhysicsShapeType::Box, halfExtents, 0.5f);
+        return entity;
+    }
+
+    // Box (default)
+    auto model = SceneLoader::GetOrLoadModel("models/cube.obj");
+    scene.Registry.emplace<MeshRenderer>(entity, model);
+    const glm::vec3 halfExtents(boxHalfExtent);
+    transform.Scale = glm::vec3(halfExtents.x * 2.0f, halfExtents.y * 2.0f, halfExtents.z * 2.0f);
+    const auto bodyId = physicsWorld.CreateBoxBody(position, halfExtents, isStatic);
+    scene.Registry.emplace<RigidBody>(entity, bodyId, isStatic, PhysicsShapeType::Box, halfExtents, 0.5f);
     return entity;
 }
 
@@ -148,6 +187,56 @@ std::filesystem::path GetDefaultFolderForAsset(const std::filesystem::path& path
     if (extension == ".prefab") return "prefabs";
 
     return {};
+}
+
+// --- Ray picking helpers ----------------------------------------------------
+
+glm::vec3 ComputeMouseRayDirection(const Camera& camera, float aspectRatio,
+                                    double mouseX, double mouseY,
+                                    int viewportWidth, int viewportHeight) {
+    const float ndcX = (2.0f * static_cast<float>(mouseX)) / static_cast<float>(viewportWidth) - 1.0f;
+    const float ndcY = 1.0f - (2.0f * static_cast<float>(mouseY)) / static_cast<float>(viewportHeight);
+
+    const glm::mat4 proj = camera.GetProjectionMatrix(aspectRatio);
+    const glm::mat4 view = camera.GetViewMatrix();
+    const glm::mat4 invViewProj = glm::inverse(proj * view);
+
+    glm::vec4 nearPoint = invViewProj * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+    glm::vec4 farPoint = invViewProj * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+    nearPoint /= nearPoint.w;
+    farPoint /= farPoint.w;
+
+    return glm::normalize(glm::vec3(farPoint - nearPoint));
+}
+
+bool RayIntersectsAABB(const glm::vec3& rayOrigin, const glm::vec3& rayDir,
+                        const glm::vec3& boxMin, const glm::vec3& boxMax, float& outDistance) {
+    float tMin = 0.0f;
+    float tMax = std::numeric_limits<float>::max();
+
+    for (int axis = 0; axis < 3; ++axis) {
+        if (std::abs(rayDir[axis]) < 1e-8f) {
+            if (rayOrigin[axis] < boxMin[axis] || rayOrigin[axis] > boxMax[axis]) {
+                return false;
+            }
+            continue;
+        }
+
+        const float invDir = 1.0f / rayDir[axis];
+        float t1 = (boxMin[axis] - rayOrigin[axis]) * invDir;
+        float t2 = (boxMax[axis] - rayOrigin[axis]) * invDir;
+        if (t1 > t2) {
+            std::swap(t1, t2);
+        }
+        tMin = std::max(tMin, t1);
+        tMax = std::min(tMax, t2);
+        if (tMin > tMax) {
+            return false;
+        }
+    }
+
+    outDistance = tMin;
+    return true;
 }
 }
 
@@ -188,6 +277,7 @@ void EditorUI::BeginFrame() {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    ImGuizmo::BeginFrame();
 
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 }
@@ -628,6 +718,7 @@ void EditorUI::DrawMenuBar() {
             ImGui::MenuItem("Physics Test", nullptr, &ShowPhysicsPanel);
             ImGui::MenuItem("Player", nullptr, &ShowPlayerPanel);
             ImGui::MenuItem("Viewport Settings", nullptr, &ShowViewportSettings);
+            ImGui::MenuItem("Gizmo Toolbar", nullptr, &ShowGizmoToolbar);
             ImGui::Separator();
             ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
             ImGui::EndMenu();
@@ -1010,7 +1101,7 @@ void EditorUI::DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld) {
     static float gravity = -9.81f;
     static float spawnHeight = 4.0f;
     static bool spawnStatic = false;
-    static int currentShape = static_cast<int>(PhysicsShapeType::Box);
+    static int currentShape = static_cast<int>(TestBodyVisualShape::Box);
     static float boxHalfExtent = 0.5f;
     static float sphereRadius = 0.5f;
 
@@ -1023,13 +1114,15 @@ void EditorUI::DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld) {
     }
 
     ImGui::Separator();
-    ImGui::Combo("Shape", &currentShape, "Box\0Sphere\0");
+    ImGui::Combo("Shape", &currentShape, "Box\0Sphere\0Pyramid\0");
 
-    const auto shapeType = static_cast<PhysicsShapeType>(currentShape);
-    if (shapeType == PhysicsShapeType::Box) {
-        ImGui::SliderFloat("Half Extent", &boxHalfExtent, 0.1f, 2.0f, "%.2f");
-    } else {
+    const auto visualShape = static_cast<TestBodyVisualShape>(currentShape);
+    if (visualShape == TestBodyVisualShape::Sphere) {
         ImGui::SliderFloat("Radius", &sphereRadius, 0.1f, 2.0f, "%.2f");
+    } else if (visualShape == TestBodyVisualShape::Pyramid) {
+        ImGui::SliderFloat("Base Half Width", &boxHalfExtent, 0.1f, 2.0f, "%.2f");
+    } else {
+        ImGui::SliderFloat("Half Extent", &boxHalfExtent, 0.1f, 2.0f, "%.2f");
     }
 
     ImGui::SliderFloat("Spawn Height", &spawnHeight, 1.0f, 10.0f, "%.1f");
@@ -1041,7 +1134,7 @@ void EditorUI::DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld) {
             physicsWorld,
             glm::vec3(0.0f, spawnHeight, 0.0f),
             spawnStatic,
-            shapeType,
+            visualShape,
             boxHalfExtent,
             sphereRadius
         );
@@ -1115,4 +1208,204 @@ void EditorUI::DrawPlayerPanel(bool& playMode, CharacterController* controller) 
     }
 
     ImGui::End();
+}
+
+// --- Gizmo / selection -------------------------------------------------
+
+void EditorUI::DrawGizmoToolbar() {
+    if (!ShowGizmoToolbar) return;
+
+    ImGui::SetNextWindowPos(ImVec2(20.0f, 60.0f), ImGuiCond_FirstUseEver);
+    ImGui::Begin("##GizmoToolbar", &ShowGizmoToolbar,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing);
+
+    auto modeButton = [this](const char* label, GizmoOperation mode) {
+        const bool active = CurrentGizmoOperation == mode;
+        if (active) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+        }
+        if (ImGui::Button(label)) {
+            CurrentGizmoOperation = mode;
+        }
+        if (active) {
+            ImGui::PopStyleColor();
+        }
+        ImGui::SameLine();
+    };
+
+    modeButton("Move (W)", GizmoOperation::Translate);
+    modeButton("Rotate (E)", GizmoOperation::Rotate);
+    modeButton("Scale (R)", GizmoOperation::Scale);
+
+    ImGui::NewLine();
+    ImGui::TextDisabled("Click to select, Delete to remove");
+
+    ImGui::End();
+}
+
+bool EditorUI::IsGizmoActive() const {
+    return ImGuizmo::IsUsing();
+}
+
+void EditorUI::DrawTransformGizmo(Scene& scene, PhysicsWorld& physicsWorld, const Camera& camera, float aspectRatio) {
+    if (SelectedEntity == entt::null || !scene.Registry.valid(SelectedEntity)) {
+        return;
+    }
+    if (!scene.Registry.all_of<Transform>(SelectedEntity)) {
+        return;
+    }
+
+    // ImGuizmo::SetDrawlist() attaches to whatever ImGui window is currently
+    // open — it has no valid target if called outside a Begin/End pair, so we
+    // open an invisible fullscreen overlay window purely to host the gizmo's
+    // draw calls and mouse hit-testing.
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(m_windowWidth), static_cast<float>(m_windowHeight)));
+    ImGui::Begin("##GizmoOverlay", nullptr,
+        ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav |
+        ImGuiWindowFlags_NoInputs);
+
+    ImGuizmo::SetOrthographic(false);
+    ImGuizmo::SetDrawlist();
+    ImGuizmo::SetRect(0.0f, 0.0f, static_cast<float>(m_windowWidth), static_cast<float>(m_windowHeight));
+
+    auto& transform = scene.Registry.get<Transform>(SelectedEntity);
+
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.Position)
+                     * glm::mat4_cast(transform.Rotation)
+                     * glm::scale(glm::mat4(1.0f), transform.Scale);
+
+    const glm::mat4 view = camera.GetViewMatrix();
+    const glm::mat4 proj = camera.GetProjectionMatrix(aspectRatio);
+
+    ImGuizmo::OPERATION operation = ImGuizmo::TRANSLATE;
+    if (CurrentGizmoOperation == GizmoOperation::Rotate) {
+        operation = ImGuizmo::ROTATE;
+    } else if (CurrentGizmoOperation == GizmoOperation::Scale) {
+        operation = ImGuizmo::SCALE;
+    }
+
+    ImGuizmo::Manipulate(
+        glm::value_ptr(view),
+        glm::value_ptr(proj),
+        operation,
+        ImGuizmo::WORLD,
+        glm::value_ptr(model)
+    );
+
+    if (ImGuizmo::IsUsing()) {
+        float translationValues[3];
+        float rotationValues[3];
+        float scaleValues[3];
+        ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(model), translationValues, rotationValues, scaleValues);
+
+        transform.Position = glm::vec3(translationValues[0], translationValues[1], translationValues[2]);
+        transform.Rotation = glm::quat(glm::radians(glm::vec3(rotationValues[0], rotationValues[1], rotationValues[2])));
+        transform.Scale = glm::vec3(scaleValues[0], scaleValues[1], scaleValues[2]);
+
+        // Teleport the physics body to match, so main.cpp's per-frame sync
+        // (transform.Position = physicsWorld.GetBodyPosition(...)) doesn't
+        // stomp this edit right back on the next physics step.
+        //
+        // NOTE: this only syncs Position/Rotation, not Scale. Jolt collision
+        // shapes aren't trivially resizable at runtime through
+        // BodyInterface — that needs recreating the shape, which isn't
+        // wired up here. So scaling a RigidBody entity with the gizmo will
+        // resize it visually but its collider stays its original size until
+        // that's added.
+        if (scene.Registry.all_of<RigidBody>(SelectedEntity)) {
+            auto& rigidBody = scene.Registry.get<RigidBody>(SelectedEntity);
+            if (!rigidBody.BodyId.IsInvalid()) {
+                const JPH::RVec3 physicsPosition(transform.Position.x, transform.Position.y, transform.Position.z);
+                const JPH::Quat physicsRotation(transform.Rotation.x, transform.Rotation.y, transform.Rotation.z, transform.Rotation.w);
+                physicsWorld.GetBodyInterface().SetPositionAndRotation(
+                    rigidBody.BodyId, physicsPosition, physicsRotation, JPH::EActivation::Activate);
+            }
+        }
+    }
+
+    ImGui::End();
+}
+
+void EditorUI::HandleViewportClick(Scene& scene, const Camera& camera, float aspectRatio,
+                                    double mouseX, double mouseY, int viewportWidth, int viewportHeight) {
+    if (viewportWidth <= 0 || viewportHeight <= 0) {
+        return;
+    }
+
+    const glm::vec3 rayOrigin = camera.Position;
+    const glm::vec3 rayDir = ComputeMouseRayDirection(camera, aspectRatio, mouseX, mouseY, viewportWidth, viewportHeight);
+
+    entt::entity closestEntity = entt::null;
+    float closestDistance = std::numeric_limits<float>::max();
+
+    auto view = scene.Registry.view<Transform, MeshRenderer>();
+    for (auto entity : view) {
+        auto& transform = view.get<Transform>(entity);
+        auto& renderer = view.get<MeshRenderer>(entity);
+
+        if (!renderer.ModelRef) {
+            continue;
+        }
+
+        // Use the model's real local-space bounds instead of assuming
+        // every mesh is a unit cube. This is what makes newly-added
+        // primitives (spheres, pyramids) and any imported .fbx/.gltf
+        // model get an accurately-sized click hitbox that scales with
+        // their actual geometry, rather than a fixed 0.5-unit box that
+        // was only ever correct for cube.obj.
+        const glm::vec3 boundsMin = renderer.ModelRef->GetBoundsMin();
+        const glm::vec3 boundsMax = renderer.ModelRef->GetBoundsMax();
+
+        const std::array<glm::vec3, 8> localCorners = {
+            glm::vec3(boundsMin.x, boundsMin.y, boundsMin.z),
+            glm::vec3(boundsMax.x, boundsMin.y, boundsMin.z),
+            glm::vec3(boundsMin.x, boundsMax.y, boundsMin.z),
+            glm::vec3(boundsMax.x, boundsMax.y, boundsMin.z),
+            glm::vec3(boundsMin.x, boundsMin.y, boundsMax.z),
+            glm::vec3(boundsMax.x, boundsMin.y, boundsMax.z),
+            glm::vec3(boundsMin.x, boundsMax.y, boundsMax.z),
+            glm::vec3(boundsMax.x, boundsMax.y, boundsMax.z),
+        };
+
+        const glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.Position)
+                               * glm::mat4_cast(transform.Rotation)
+                               * glm::scale(glm::mat4(1.0f), transform.Scale);
+
+        glm::vec3 worldMin(std::numeric_limits<float>::max());
+        glm::vec3 worldMax(std::numeric_limits<float>::lowest());
+        for (const auto& corner : localCorners) {
+            const glm::vec3 worldCorner = glm::vec3(model * glm::vec4(corner, 1.0f));
+            worldMin = glm::min(worldMin, worldCorner);
+            worldMax = glm::max(worldMax, worldCorner);
+        }
+
+        float distance = 0.0f;
+        if (RayIntersectsAABB(rayOrigin, rayDir, worldMin, worldMax, distance) && distance < closestDistance) {
+            closestDistance = distance;
+            closestEntity = entity;
+        }
+    }
+
+    if (closestEntity != entt::null) {
+        SelectedEntity = closestEntity;
+    }
+}
+
+void EditorUI::DeleteSelectedEntity(Scene& scene, PhysicsWorld& physicsWorld) {
+    if (SelectedEntity == entt::null || !scene.Registry.valid(SelectedEntity)) {
+        return;
+    }
+
+    if (scene.Registry.all_of<RigidBody>(SelectedEntity)) {
+        auto& rigidBody = scene.Registry.get<RigidBody>(SelectedEntity);
+        if (!rigidBody.BodyId.IsInvalid()) {
+            physicsWorld.DestroyBody(rigidBody.BodyId);
+        }
+    }
+
+    scene.DestroyEntity(SelectedEntity);
+    SelectedEntity = entt::null;
 }

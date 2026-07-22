@@ -47,6 +47,7 @@ add_executable(engine
     src/rendering/Animation.cpp
     src/rendering/Animator.cpp
     src/rendering/Bone.cpp
+    src/rendering/Primitives.cpp
 )
 
 target_include_directories(engine PRIVATE

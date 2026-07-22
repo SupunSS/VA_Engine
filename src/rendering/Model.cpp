@@ -67,6 +67,13 @@ Model::Model(const std::string& path) {
     LoadModel(path);
 }
 
+// Procedural constructor — used by Primitives.cpp for generating shapes
+// (spheres, boxes, etc. for physics testing) with explicit precomputed
+// bounds, bypassing the Assimp load path entirely.
+Model::Model(std::vector<std::unique_ptr<Mesh>> meshes, const glm::vec3& boundsMin, const glm::vec3& boundsMax)
+    : m_meshes(std::move(meshes)), m_boundsMin(boundsMin), m_boundsMax(boundsMax) {
+}
+
 void Model::LoadModel(const std::string& path) {
     m_directory = std::filesystem::path(path).parent_path();
 
@@ -179,6 +186,10 @@ std::unique_ptr<Mesh> Model::ProcessMesh(aiMesh* mesh, const aiScene* scene) {
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
         Vertex vertex;
         vertex.Position = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+
+        // Accumulate local-space bounds across every mesh in this model.
+        m_boundsMin = glm::min(m_boundsMin, vertex.Position);
+        m_boundsMax = glm::max(m_boundsMax, vertex.Position);
 
         if (mesh->HasNormals()) {
             vertex.Normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);

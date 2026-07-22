@@ -18,6 +18,12 @@
 class Texture;
 class CharacterController; // used only by pointer here — full type comes from CharacterController.h in the .cpp
 
+enum class GizmoOperation {
+    Translate,
+    Rotate,
+    Scale
+};
+
 class EditorUI {
 public:
     void Initialize(GLFWwindow* window);
@@ -39,6 +45,15 @@ public:
     void DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer);
     void DrawPlayerPanel(bool& playMode, CharacterController* controller);
 
+    // --- Gizmo / selection -------------------------------------------------
+    void DrawGizmoToolbar();
+    void DrawTransformGizmo(Scene& scene, PhysicsWorld& physicsWorld, const Camera& camera, float aspectRatio);
+    void HandleViewportClick(Scene& scene, const Camera& camera, float aspectRatio,
+                              double mouseX, double mouseY, int viewportWidth, int viewportHeight);
+    void DeleteSelectedEntity(Scene& scene, PhysicsWorld& physicsWorld);
+    bool IsGizmoActive() const;
+
+    GizmoOperation CurrentGizmoOperation = GizmoOperation::Translate;
 
     entt::entity SelectedEntity = entt::null;
 
@@ -50,6 +65,7 @@ public:
     bool ShowViewportSettings = true;
     bool ShowStatsOverlay = false;
     bool ShowPlayerPanel = true;
+    bool ShowGizmoToolbar = true;
 
 private:
     void EnsureAssetDirectories();
