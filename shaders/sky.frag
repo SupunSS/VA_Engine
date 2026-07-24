@@ -18,7 +18,7 @@ const float MIE_COEFF             = 21e-6;
 const float RAYLEIGH_SCALE_HEIGHT = 8000.0;
 const float MIE_SCALE_HEIGHT      = 1200.0;
 const float MIE_G                 = 0.758;
-const float SUN_INTENSITY         = 22.0;
+const float SUN_INTENSITY         = 16.0; // was 22.0 — overall sky brightness pulled back
 
 const vec3 OZONE_COEFF = vec3(0.650e-6, 1.881e-6, 0.085e-6);
 
@@ -156,14 +156,17 @@ void main() {
     // horizon — computed once, reused by both below.
     float sunHorizonFade = smoothstep(-0.02, 0.02, uSunDirection.y);
 
-    // Corona: a much wider, soft falloff around the disk than the hard
-    // disk edge itself — this is what gives the RDR2/GTA-style photos their
-    // glowing halo instead of a flat white circle. Real photos get this
-    // mostly from lens scattering; here it's approximated as an exponential
-    // falloff in angular distance from the sun direction.
+    // Corona: a soft falloff around the disk, giving a glowing halo instead
+    // of a flat white circle. This was the actual source of the "foggy"
+    // look reported — at the old 8.0 magnitude / 14.0 falloff exponent, it
+    // stayed non-trivially bright out to ~15° from the sun, unscaled by any
+    // of the physical extinction coefficients above, which is wide enough
+    // to blanket a large swath of the horizon in bloom regardless of
+    // downstream exposure/threshold tuning. Tightened and dimmed here at
+    // the source instead of just compensating for it later.
     float angleFromSun = acos(clamp(cosSunAngle, -1.0, 1.0));
-    float coronaFalloff = exp(-angleFromSun * 14.0); // higher = tighter glow, lower = wider halo
-    vec3 coronaColor = vec3(1.0, 0.9, 0.75) * coronaFalloff * 8.0 * sunHorizonFade * transmittance;
+    float coronaFalloff = exp(-angleFromSun * 22.0); // was 14.0 — narrower halo
+    vec3 coronaColor = vec3(1.0, 0.9, 0.75) * coronaFalloff * 3.0 * sunHorizonFade * transmittance; // was 8.0
 
     vec3 sunColor = vec3(1.0, 0.96, 0.9) * SUN_DISK_INTENSITY * sunMask * sunHorizonFade * transmittance;
     color += sunColor;

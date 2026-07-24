@@ -719,6 +719,7 @@ void EditorUI::DrawMenuBar() {
             ImGui::MenuItem("Player", nullptr, &ShowPlayerPanel);
             ImGui::MenuItem("Viewport Settings", nullptr, &ShowViewportSettings);
             ImGui::MenuItem("Gizmo Toolbar", nullptr, &ShowGizmoToolbar);
+            ImGui::MenuItem("Culling", nullptr, &ShowCullingPanel);
             ImGui::Separator();
             ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
             ImGui::EndMenu();
@@ -1205,6 +1206,30 @@ void EditorUI::DrawPlayerPanel(bool& playMode, CharacterController* controller) 
         ImGui::Text(controller->IsGrounded() ? "Grounded" : "Airborne");
     } else {
         ImGui::TextDisabled("No character controller bound");
+    }
+
+    ImGui::End();
+}
+
+void EditorUI::DrawCullingPanel(bool& freezeCullingFrustum, float& maxRenderDistance, int renderedCount, int culledCount) {
+    if (!ShowCullingPanel) return;
+    ImGui::Begin("Culling", &ShowCullingPanel);
+
+    ImGui::Checkbox("Freeze Culling Frustum", &freezeCullingFrustum);
+    ImGui::TextWrapped("While frozen, use Left/Right/Up/Down arrow keys to pan/tilt "
+                        "the yellow wireframe frustum in place. Fly the free-fly "
+                        "camera around normally to watch objects render/cull live "
+                        "as you sweep it.");
+
+    ImGui::Separator();
+    ImGui::SliderFloat("Max Render Distance", &maxRenderDistance, 20.0f, 1000.0f, "%.0f");
+
+    ImGui::Separator();
+    ImGui::Text("Rendered: %d", renderedCount);
+    ImGui::Text("Culled: %d", culledCount);
+    const int total = renderedCount + culledCount;
+    if (total > 0) {
+        ImGui::Text("Culled: %.1f%%", 100.0f * static_cast<float>(culledCount) / static_cast<float>(total));
     }
 
     ImGui::End();

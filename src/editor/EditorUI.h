@@ -45,6 +45,13 @@ public:
     void DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer);
     void DrawPlayerPanel(bool& playMode, CharacterController* controller);
 
+    // Frustum + distance culling debug panel. freezeCullingFrustum is owned
+    // by main.cpp (toggling it snapshots the active camera's frustum and
+    // holds it while true, instead of tracking the live camera — lets you
+    // fly the free-fly camera outside the frozen frustum to visually verify
+    // culling). renderedCount/culledCount are read-only stats for display.
+    void DrawCullingPanel(bool& freezeCullingFrustum, float& maxRenderDistance, int renderedCount, int culledCount);
+
     // --- Gizmo / selection -------------------------------------------------
     void DrawGizmoToolbar();
     void DrawTransformGizmo(Scene& scene, PhysicsWorld& physicsWorld, const Camera& camera, float aspectRatio);
@@ -66,6 +73,7 @@ public:
     bool ShowStatsOverlay = false;
     bool ShowPlayerPanel = true;
     bool ShowGizmoToolbar = true;
+    bool ShowCullingPanel = true;
 
 private:
     void EnsureAssetDirectories();

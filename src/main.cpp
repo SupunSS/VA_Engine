@@ -32,6 +32,8 @@
 #include "physics/CharacterController.h"
 #include "rendering/FollowCamera.h"
 #include "rendering/Skybox.h"
+#include "rendering/Frustum.h"
+#include "rendering/FrustumRenderer.h"
 
 namespace {
 struct WindowUserData {
@@ -256,11 +258,11 @@ int main() {
     int lastKnownFramebufferHeight = height;
 
     // Bloom tuning constants — start here if the effect looks too weak/strong.
-    constexpr float kBloomThreshold = 1.0f;   // luminance above this starts blooming
-    constexpr float kBloomKnee = 0.5f;        // soft transition width around the threshold
-    constexpr float kBloomIntensity = 0.3f;   // how much blurred glow gets added back
+    constexpr float kBloomThreshold = 1.6f;   // luminance above this starts blooming — raised from 1.0 so ordinary lit geometry stops glowing, only genuinely bright things (sun, sky) do
+    constexpr float kBloomKnee = 0.4f;        // soft transition width around the threshold
+    constexpr float kBloomIntensity = 0.18f;  // how much blurred glow gets added back — was 0.3, main contributor to the "foggy" look
     constexpr int   kBloomBlurPasses = 5;     // ping-pong iterations (10 total blur draws)
-    constexpr float kExposure = 0.6f;         // overall scene exposure before tonemapping
+    constexpr float kExposure = 0.42f;        // overall scene exposure before tonemapping — was 0.6, was overexposing/washing out contrast
 
     auto defaultMaterial = std::make_shared<Material>();
     defaultMaterial->albedoTint = glm::vec3(1.0f, 1.0f, 1.0f);
@@ -302,7 +304,7 @@ int main() {
     FollowCamera followCamera;
     bool playMode = false;
 
-    ChunkManager chunkManager(50.0f, 1);
+    ChunkManager chunkManager(50.0f, 5);
 
     ScriptEngine scriptEngine;
     scriptEngine.Initialize(&scene);
@@ -312,6 +314,26 @@ int main() {
 
     GridRenderer gridRenderer;
     Skybox skybox;
+
+    // --- Frustum + distance culling ------------------------------------
+    // The frozen frustum is a fixed-position "tripod" camera you manually
+    // pan/tilt with the arrow keys while freezeCullingFrustum is true —
+    // deliberately separate from the free-fly camera you're viewing
+    // through, so you can fly around outside the frozen frustum with normal
+    // WASD+click-drag navigation while independently sweeping its facing
+    // direction to watch objects render/cull in real time.
+    Frustum cullingFrustum;
+    FrustumRenderer frustumRenderer;
+    bool freezeCullingFrustum = false;
+    bool freezeCullingFrustumWasEnabled = false;
+    glm::mat4 frozenViewProjection(1.0f);
+    glm::vec3 frozenCameraPosition(0.0f);
+    float frozenFrustumYaw = -90.0f;   // matches Camera's own yaw convention/default
+    float frozenFrustumPitch = 0.0f;
+    float maxRenderDistance = 200.0f;
+    int renderedEntityCount = 0;
+    int culledEntityCount = 0;
+
     float lastFrameTime = 0.0f;
     bool altRWasPressed = false;
     bool spaceWasPressed = false;
@@ -475,6 +497,17 @@ int main() {
             userData->editorUI->QueueDroppedFiles(count, paths);
         }
     });
+
+    // Pre-populate chunks around the spawn point BEFORE showing the window.
+    // ChunkManager::Update's first-ever call is expensive (JSON parsing +
+    // procedural city-block generation + ~45 physics body creations across
+    // 9 chunks) — running it here, while the window is still hidden, keeps
+    // that burst out of the visible first frame. Skipping this was exactly
+    // what reintroduced the missing-title-bar bug: the window was already
+    // shown by the time this work ran, so it became a blocking freeze with
+    // no glfwPollEvents() in between, which is the same DWM decoration
+    // issue the show-window-last reordering below was meant to prevent.
+    chunkManager.Update(camera.Position, scene, physicsWorld);
 
     glfwShowWindow(window);
     glfwMaximizeWindow(window);
@@ -666,6 +699,56 @@ int main() {
         const glm::mat4 activeView = playMode ? followCamera.GetViewMatrix() : camera.GetViewMatrix();
         const glm::mat4 activeProjection = playMode ? followCamera.GetProjectionMatrix(aspectRatio) : camera.GetProjectionMatrix(aspectRatio);
         const glm::vec3 activeCameraPos = playMode ? followCamera.Position : camera.Position;
+        const glm::mat4 activeViewProjection = activeProjection * activeView;
+
+        // Freeze-frustum debug feature: the frozen frustum is a
+        // fixed-position "tripod" — its POSITION is captured once, the
+        // instant freezeCullingFrustum flips on, from wherever the live
+        // camera happened to be. Its ORIENTATION is then driven manually by
+        // arrow keys every frame while frozen (Left/Right = yaw, Up/Down =
+        // pitch), completely independent of the free-fly camera you're
+        // actually viewing through — so you can fly anywhere with normal
+        // WASD+click-drag navigation while separately sweeping the frozen
+        // frustum's facing direction and watching objects render/cull live.
+        if (freezeCullingFrustum) {
+            if (!freezeCullingFrustumWasEnabled) {
+                frozenCameraPosition = activeCameraPos;
+                // Derive a starting yaw/pitch from whichever camera was
+                // active at the moment of freezing, so the frustum starts
+                // out facing wherever you were already looking rather than
+                // snapping to some arbitrary default direction.
+                const glm::mat4 invActiveView = glm::inverse(activeView);
+                const glm::vec3 activeForward = glm::normalize(glm::vec3(invActiveView * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+                frozenFrustumPitch = glm::degrees(std::asin(glm::clamp(activeForward.y, -1.0f, 1.0f)));
+                frozenFrustumYaw = glm::degrees(std::atan2(activeForward.z, activeForward.x));
+            }
+
+            if (!ImGui::GetIO().WantCaptureKeyboard) {
+                constexpr float kFrustumRotateSpeed = 60.0f; // degrees/sec
+                if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)  frozenFrustumYaw -= kFrustumRotateSpeed * deltaTime;
+                if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) frozenFrustumYaw += kFrustumRotateSpeed * deltaTime;
+                if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)    frozenFrustumPitch += kFrustumRotateSpeed * deltaTime;
+                if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)  frozenFrustumPitch -= kFrustumRotateSpeed * deltaTime;
+                frozenFrustumPitch = glm::clamp(frozenFrustumPitch, -89.0f, 89.0f);
+            }
+
+            glm::vec3 frozenForward;
+            frozenForward.x = std::cos(glm::radians(frozenFrustumYaw)) * std::cos(glm::radians(frozenFrustumPitch));
+            frozenForward.y = std::sin(glm::radians(frozenFrustumPitch));
+            frozenForward.z = std::sin(glm::radians(frozenFrustumYaw)) * std::cos(glm::radians(frozenFrustumPitch));
+            frozenForward = glm::normalize(frozenForward);
+
+            const glm::mat4 frozenView = glm::lookAt(frozenCameraPosition, frozenCameraPosition + frozenForward, glm::vec3(0.0f, 1.0f, 0.0f));
+            // Reuses whatever projection (FOV/near/far) the free-fly camera
+            // uses — the frozen frustum doesn't need its own separate FOV setting.
+            frozenViewProjection = camera.GetProjectionMatrix(aspectRatio) * frozenView;
+        } else {
+            frozenViewProjection = activeViewProjection;
+            frozenCameraPosition = activeCameraPos;
+        }
+        freezeCullingFrustumWasEnabled = freezeCullingFrustum;
+
+        cullingFrustum = Frustum(frozenViewProjection);
 
         skybox.Render(activeView, activeProjection, activeCameraPos, -kDirLightDirection);
 
@@ -673,7 +756,11 @@ int main() {
             gridRenderer.Render(camera, aspectRatio);
         }
 
-        const glm::vec3 dirLightColor = ComputeSunLightColor(-kDirLightDirection);
+        // 0.7 multiplier: ComputeSunLightColor's raw output (derived straight from
+        // atmospheric transmittance) reads a bit hot on flat matte materials —
+        // this pulls it back without touching the sky's own appearance.
+        constexpr float kDirLightIntensity = 0.7f;
+        const glm::vec3 dirLightColor = ComputeSunLightColor(-kDirLightDirection) * kDirLightIntensity;
 
         triangleShader.Bind();
         triangleShader.SetMat4("uView", activeView);
@@ -693,11 +780,38 @@ int main() {
 
         chunkManager.Update(viewerPosition, scene, physicsWorld);
 
+        // Independent of render/streaming radius — dynamic bodies farther
+        // than this from the viewer get put to sleep so Jolt stops
+        // simulating them, and static bodies (ground plates, building
+        // colliders — never move once created) skip the GetBodyPosition/
+        // GetBodyRotation readback entirely, since re-reading them every
+        // frame was pure wasted work that scales directly with how many
+        // chunks are streamed in (exactly what got expensive at radius 6).
+        constexpr float kPhysicsActivationRadius = 30.0f;
+
         auto rigidBodyView = scene.Registry.view<Transform, RigidBody>();
         for (auto entity : rigidBodyView) {
             auto& transform = rigidBodyView.get<Transform>(entity);
             auto& rigidBody = rigidBodyView.get<RigidBody>(entity);
             if (rigidBody.BodyId.IsInvalid()) {
+                continue;
+            }
+
+            if (rigidBody.IsStatic) {
+                continue;
+            }
+
+            const float distanceToViewer = glm::length(transform.Position - viewerPosition);
+            const bool shouldBeActive = distanceToViewer <= kPhysicsActivationRadius;
+            const bool isCurrentlyActive = physicsWorld.GetBodyInterface().IsActive(rigidBody.BodyId);
+
+            if (shouldBeActive && !isCurrentlyActive) {
+                physicsWorld.GetBodyInterface().ActivateBody(rigidBody.BodyId);
+            } else if (!shouldBeActive && isCurrentlyActive) {
+                physicsWorld.GetBodyInterface().DeactivateBody(rigidBody.BodyId);
+            }
+
+            if (!shouldBeActive) {
                 continue;
             }
 
@@ -716,10 +830,49 @@ int main() {
             Log::Info("Spatial query: {} entities within 20 units of viewer", nearby.size());
         }
 
+        renderedEntityCount = 0;
+        culledEntityCount = 0;
+
         auto view = scene.Registry.view<Transform, MeshRenderer>();
         for (auto entity : view) {
             auto [transform, renderer] = view.get<Transform, MeshRenderer>(entity);
+
+            if (!renderer.ModelRef) {
+                continue;
+            }
+
             glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
+
+            // --- Frustum + distance culling ---------------------------
+            // Bounding sphere from the model's real local-space bounds
+            // (Model already tracks these from its actual vertex data,
+            // not a fixed-size guess) — center transformed by the full
+            // world matrix, radius conservatively covers the local
+            // half-diagonal scaled by the transform's largest axis scale
+            // factor (safe for non-uniform scale, if a bit generous on
+            // heavily-stretched objects).
+            const glm::vec3 localMin = renderer.ModelRef->GetBoundsMin();
+            const glm::vec3 localMax = renderer.ModelRef->GetBoundsMax();
+            const glm::vec3 localCenter = (localMin + localMax) * 0.5f;
+            const glm::vec3 localHalfExtent = (localMax - localMin) * 0.5f;
+
+            const glm::vec3 worldCenter = glm::vec3(worldMatrix * glm::vec4(localCenter, 1.0f));
+            const float scaleX = glm::length(glm::vec3(worldMatrix[0]));
+            const float scaleY = glm::length(glm::vec3(worldMatrix[1]));
+            const float scaleZ = glm::length(glm::vec3(worldMatrix[2]));
+            const float maxScale = glm::max(scaleX, glm::max(scaleY, scaleZ));
+            const float worldRadius = glm::length(localHalfExtent) * maxScale;
+
+            const float distanceToCamera = glm::length(worldCenter - frozenCameraPosition);
+            const bool withinDistance = distanceToCamera <= (maxRenderDistance + worldRadius);
+            const bool insideFrustum = cullingFrustum.IntersectsSphere(worldCenter, worldRadius);
+
+            if (!withinDistance || !insideFrustum) {
+                ++culledEntityCount;
+                continue;
+            }
+            ++renderedEntityCount;
+
             triangleShader.SetMat4("uModel", worldMatrix);
 
             if (entity == playerVisualEntity) {
@@ -727,6 +880,14 @@ int main() {
             }
 
             renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
+        }
+
+        // Debug: visualize the (possibly frozen) culling frustum as a
+        // wireframe, viewed from whichever camera is actually rendering
+        // right now. Editor-only — drawing this during Play mode would be
+        // immersion-breaking and there's no debug reason to see it then.
+        if (!playMode && freezeCullingFrustum) {
+            frustumRenderer.Render(frozenViewProjection, activeViewProjection);
         }
 
         // --- Pass 2: bright-pass extraction (half-res) ----------------------
@@ -807,6 +968,7 @@ int main() {
         }
 
         editorUI.DrawViewportSettings(camera, gridRenderer);
+        editorUI.DrawCullingPanel(freezeCullingFrustum, maxRenderDistance, renderedEntityCount, culledEntityCount);
         editorUI.DrawStatsOverlay();
         editorUI.Render();
 

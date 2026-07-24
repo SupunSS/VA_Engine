@@ -21,6 +21,17 @@ std::string ChunkManager::GetChunkPath(int x, int z) const {
 void ChunkManager::Update(const glm::vec3& viewerPosition, Scene& scene, PhysicsWorld& physicsWorld) {
     ChunkKey center = WorldToChunk(viewerPosition);
 
+    // Nothing to do if the viewer is still in the same chunk as last frame —
+    // at a large loadRadius this desired-set computation is (2*radius+1)^2
+    // hash-set insertions plus a full scan of m_loadedChunks, done every
+    // single frame regardless of movement. That's pure waste most frames,
+    // since the viewer only actually crosses a chunk boundary occasionally.
+    if (m_hasLastCenter && center.x == m_lastCenter.x && center.z == m_lastCenter.z) {
+        return;
+    }
+    m_lastCenter = center;
+    m_hasLastCenter = true;
+
     std::unordered_set<ChunkKey, ChunkKeyHash> desiredChunks;
     for (int dx = -m_loadRadius; dx <= m_loadRadius; ++dx) {
         for (int dz = -m_loadRadius; dz <= m_loadRadius; ++dz) {

@@ -29,4 +29,7 @@ private:
     int m_loadRadius; // in chunks, not world units
 
     std::unordered_set<ChunkKey, ChunkKeyHash> m_loadedChunks;
+
+    ChunkKey m_lastCenter{};
+    bool m_hasLastCenter = false;
 };

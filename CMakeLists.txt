@@ -48,6 +48,8 @@ add_executable(engine
     src/rendering/Animator.cpp
     src/rendering/Bone.cpp
     src/rendering/Primitives.cpp
+    src/rendering/Frustum.cpp
+    src/rendering/FrustumRenderer.cpp
 )
 
 target_include_directories(engine PRIVATE
