@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 #include <memory>
+#include <limits>
 
 class Animation;
 
@@ -55,7 +56,11 @@ private:
     std::map<std::string, BoneInfo> m_BoneInfoMap;
     int m_BoneCount = 0;
 
-    // Spatial bounding box tracking (resolves the undeclared identifier errors)
-    glm::vec3 m_boundsMin{ 0.0f };
-    glm::vec3 m_boundsMax{ 0.0f };
+    // Spatial bounding box tracking. Seeded to +/-infinity (not 0) so an
+    // empty-so-far accumulation doesn't force every model's bounds to
+    // always include local-space origin — a mesh that never actually spans
+    // (0,0,0) would otherwise get an artificially inflated, off-center
+    // bounding sphere for frustum/distance culling.
+    glm::vec3 m_boundsMin{ std::numeric_limits<float>::max() };
+    glm::vec3 m_boundsMax{ std::numeric_limits<float>::lowest() };
 };

@@ -8,9 +8,20 @@ ChunkManager::ChunkManager(float chunkSize, int loadRadius)
     : m_chunkSize(chunkSize), m_loadRadius(loadRadius) {}
 
 ChunkManager::ChunkKey ChunkManager::WorldToChunk(const glm::vec3& position) const {
+    // Small epsilon pulls the effective chunk boundary slightly inward on
+    // both sides, so floating-point jitter of a few millimeters around an
+    // exact chunk-size multiple (extremely common for a "resting" physics
+    // body — Jolt, like every physics engine, allows sub-millimeter jitter
+    // at rest) doesn't flip the computed chunk index back and forth every
+    // frame. Without this, a stationary player standing near a chunk
+    // boundary causes ChunkManager::Update to see a "new center" almost
+    // every frame, which tears down and rebuilds the entire boundary ring
+    // of chunks repeatedly — this is what was causing buildings to
+    // intermittently vanish and reappear while just standing still.
+    constexpr float kBoundaryEpsilon = 0.1f;
     return {
-        static_cast<int>(std::floor(position.x / m_chunkSize)),
-        static_cast<int>(std::floor(position.z / m_chunkSize))
+        static_cast<int>(std::floor((position.x + kBoundaryEpsilon) / m_chunkSize)),
+        static_cast<int>(std::floor((position.z + kBoundaryEpsilon) / m_chunkSize))
     };
 }
 
