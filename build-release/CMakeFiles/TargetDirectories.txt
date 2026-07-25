@@ -1,0 +1,3 @@
+D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir
+D:/Projects/VA Engine/build-release/CMakeFiles/edit_cache.dir
+D:/Projects/VA Engine/build-release/CMakeFiles/rebuild_cache.dir

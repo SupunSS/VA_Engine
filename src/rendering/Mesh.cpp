@@ -10,6 +10,9 @@ Mesh::~Mesh() {
     glDeleteVertexArrays(1, &m_VAO);
     glDeleteBuffers(1, &m_VBO);
     glDeleteBuffers(1, &m_EBO);
+    if (m_instanceVBO != 0) {
+        glDeleteBuffers(1, &m_instanceVBO);
+    }
 }
 
 void Mesh::SetupMesh() {
@@ -50,6 +53,25 @@ void Mesh::SetupMesh() {
     glEnableVertexAttribArray(5);
     glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, BoneWeights));
 
+    // --- Per-instance model matrix (locations 6-9) --------------------
+    // A mat4 vertex attribute must be split into 4 consecutive vec4
+    // locations — this is a hard OpenGL constraint (no single-location
+    // mat4 attribute type). glVertexAttribDivisor(loc, 1) is what makes
+    // these advance once per INSTANCE instead of once per VERTEX; without
+    // it this would just be garbage per-vertex data. Data itself isn't
+    // uploaded here — DrawInstanced() fills m_instanceVBO fresh each call,
+    // since which entities are actually being batched changes every frame
+    // as culling results change.
+    glGenBuffers(1, &m_instanceVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_instanceVBO);
+    for (unsigned int i = 0; i < 4; ++i) {
+        const unsigned int location = 6 + i;
+        glEnableVertexAttribArray(location);
+        glVertexAttribPointer(location, 4, GL_FLOAT, GL_FALSE, sizeof(glm::mat4),
+            (void*)(sizeof(glm::vec4) * i));
+        glVertexAttribDivisor(location, 1);
+    }
+
     glBindVertexArray(0);
 }
 
@@ -61,5 +83,26 @@ void Mesh::Draw(const Shader& shader, const Material* overrideMaterial) const {
 
     glBindVertexArray(m_VAO);
     glDrawElements(GL_TRIANGLES, static_cast<unsigned int>(m_indices.size()), GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+}
+
+void Mesh::DrawInstanced(const Shader& shader, const Material* overrideMaterial,
+                          const std::vector<glm::mat4>& instanceMatrices) const {
+    if (instanceMatrices.empty()) {
+        return;
+    }
+
+    const Material* activeMaterial = overrideMaterial ? overrideMaterial : material.get();
+    if (activeMaterial) {
+        activeMaterial->Bind(shader);
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, m_instanceVBO);
+    glBufferData(GL_ARRAY_BUFFER, instanceMatrices.size() * sizeof(glm::mat4),
+        instanceMatrices.data(), GL_DYNAMIC_DRAW);
+
+    glBindVertexArray(m_VAO);
+    glDrawElementsInstanced(GL_TRIANGLES, static_cast<unsigned int>(m_indices.size()), GL_UNSIGNED_INT, 0,
+        static_cast<int>(instanceMatrices.size()));
     glBindVertexArray(0);
 }

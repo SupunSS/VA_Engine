@@ -1,0 +1,182 @@
+[
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\main.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\main.cpp\"",
+  "file": "D:/Projects/VA Engine/src/main.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/main.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\core\\Log.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\core\\Log.cpp\"",
+  "file": "D:/Projects/VA Engine/src/core/Log.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/core/Log.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\core\\memory\\StackAllocator.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\core\\memory\\StackAllocator.cpp\"",
+  "file": "D:/Projects/VA Engine/src/core/memory/StackAllocator.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/core/memory/StackAllocator.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\core\\memory\\PoolAllocator.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\core\\memory\\PoolAllocator.cpp\"",
+  "file": "D:/Projects/VA Engine/src/core/memory/PoolAllocator.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/core/memory/PoolAllocator.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\core\\jobs\\JobSystem.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\core\\jobs\\JobSystem.cpp\"",
+  "file": "D:/Projects/VA Engine/src/core/jobs/JobSystem.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/core/jobs/JobSystem.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Shader.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Shader.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Shader.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Shader.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Camera.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Camera.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Camera.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Camera.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Texture.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Texture.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Texture.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Texture.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Mesh.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Mesh.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Mesh.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Mesh.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Model.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Model.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Model.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Model.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Material.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Material.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Material.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Material.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Skybox.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Skybox.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Skybox.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Skybox.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scene\\Components.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\Components.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scene/Components.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scene/Components.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scene\\Scene.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\Scene.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scene/Scene.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scene/Scene.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scene\\SpatialGrid.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\SpatialGrid.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scene/SpatialGrid.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scene/SpatialGrid.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scene\\SceneLoader.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\SceneLoader.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scene/SceneLoader.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scene/SceneLoader.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scripting\\ScriptEngine.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scripting\\ScriptEngine.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scripting/ScriptEngine.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scripting/ScriptEngine.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scene\\ChunkManager.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\ChunkManager.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scene/ChunkManager.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scene/ChunkManager.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\editor\\EditorUI.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\editor\\EditorUI.cpp\"",
+  "file": "D:/Projects/VA Engine/src/editor/EditorUI.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/editor/EditorUI.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\GridRenderer.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\GridRenderer.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/GridRenderer.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/GridRenderer.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\physics\\PhysicsWorld.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\physics\\PhysicsWorld.cpp\"",
+  "file": "D:/Projects/VA Engine/src/physics/PhysicsWorld.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/physics/PhysicsWorld.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\ResourceManager.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\ResourceManager.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/ResourceManager.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/ResourceManager.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\physics\\CharacterController.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\physics\\CharacterController.cpp\"",
+  "file": "D:/Projects/VA Engine/src/physics/CharacterController.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/physics/CharacterController.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\FollowCamera.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\FollowCamera.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/FollowCamera.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/FollowCamera.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Animation.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Animation.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Animation.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Animation.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Animator.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Animator.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Animator.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Animator.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Bone.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Bone.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Bone.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Bone.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Primitives.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Primitives.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Primitives.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Primitives.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\Frustum.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\Frustum.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/Frustum.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/Frustum.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\rendering\\FrustumRenderer.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\FrustumRenderer.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/FrustumRenderer.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/rendering/FrustumRenderer.cpp.obj"
+}
+]

@@ -20,6 +20,12 @@ public:
     Model(std::vector<std::unique_ptr<Mesh>> meshes, const glm::vec3& boundsMin, const glm::vec3& boundsMax);
 
     void Draw(const Shader& shader, const Material* overrideMaterial = nullptr) const;
+
+    // Instanced counterpart — see Mesh::DrawInstanced for the actual detail.
+    // shader must be the instanced vertex shader variant.
+    void DrawInstanced(const Shader& shader, const Material* overrideMaterial,
+                        const std::vector<glm::mat4>& instanceMatrices) const;
+
     void SetMaterial(std::shared_ptr<Material> material);
 
     // Loads an additional animation clip (e.g. a separate walk.fbx) against

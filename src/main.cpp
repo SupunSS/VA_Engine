@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
 #include "rendering/Shader.h"
 #include "rendering/Camera.h"
 #include "rendering/Texture.h"
@@ -85,12 +86,6 @@ glm::vec3 ComputeSunLightColor(const glm::vec3& sunDirection)
 }
 
 // --- Bloom post-process framebuffers ---------------------------------------
-// hdrFBO: full-resolution scene render target (RGBA16F, linear HDR values,
-// no tonemapping applied by sky.frag/triangle.frag anymore) + a depth
-// renderbuffer so normal depth-tested scene rendering still works.
-// brightFBO / pingpongFBO: half-resolution targets used only for the bloom
-// extraction + blur — bloom is inherently soft, so full-res blur would cost
-// far more than it's worth visually.
 struct PostProcessTargets {
     GLuint hdrFBO = 0, hdrColorTexture = 0, hdrDepthRBO = 0;
     GLuint brightFBO = 0, brightTexture = 0;
@@ -143,7 +138,6 @@ void CreatePostProcessTargets(PostProcessTargets& t, int width, int height)
     t.halfWidth = std::max(1, width / 2);
     t.halfHeight = std::max(1, height / 2);
 
-    // Full-res HDR scene target.
     glGenFramebuffers(1, &t.hdrFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, t.hdrFBO);
 
@@ -164,7 +158,6 @@ void CreatePostProcessTargets(PostProcessTargets& t, int width, int height)
     ENGINE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
                   "HDR scene framebuffer incomplete");
 
-    // Half-res bloom extraction + ping-pong blur targets.
     t.brightTexture = CreateHalfResColorTarget(t.brightFBO, t.halfWidth, t.halfHeight);
     t.pingpongTexture[0] = CreateHalfResColorTarget(t.pingpongFBO[0], t.halfWidth, t.halfHeight);
     t.pingpongTexture[1] = CreateHalfResColorTarget(t.pingpongFBO[1], t.halfWidth, t.halfHeight);
@@ -239,16 +232,12 @@ int main() {
     double lastCursorY = 0.0;
 
     Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
+    Shader triangleInstancedShader("shaders/triangle_instanced.vert", "shaders/triangle.frag");
 
-    // Bloom pipeline shaders — all three reuse sky.vert as their vertex
-    // stage, since it's already the engine's no-VBO fullscreen triangle.
     Shader bloomThresholdShader("shaders/sky.vert", "shaders/bloom_threshold.frag");
     Shader bloomBlurShader("shaders/sky.vert", "shaders/bloom_blur.frag");
     Shader bloomCompositeShader("shaders/sky.vert", "shaders/bloom_composite.frag");
 
-    // Empty VAO required by core-profile GL to issue a draw call even
-    // though the fullscreen triangle vertex shader has no vertex attributes
-    // (positions are computed purely from gl_VertexID).
     GLuint fullscreenVAO = 0;
     glGenVertexArrays(1, &fullscreenVAO);
 
@@ -257,12 +246,11 @@ int main() {
     int lastKnownFramebufferWidth = width;
     int lastKnownFramebufferHeight = height;
 
-    // Bloom tuning constants — start here if the effect looks too weak/strong.
-    constexpr float kBloomThreshold = 1.6f;   // luminance above this starts blooming — raised from 1.0 so ordinary lit geometry stops glowing, only genuinely bright things (sun, sky) do
-    constexpr float kBloomKnee = 0.4f;        // soft transition width around the threshold
-    constexpr float kBloomIntensity = 0.18f;  // how much blurred glow gets added back — was 0.3, main contributor to the "foggy" look
-    constexpr int   kBloomBlurPasses = 5;     // ping-pong iterations (10 total blur draws)
-    constexpr float kExposure = 0.42f;        // overall scene exposure before tonemapping — was 0.6, was overexposing/washing out contrast
+    constexpr float kBloomThreshold = 1.6f;
+    constexpr float kBloomKnee = 0.4f;
+    constexpr float kBloomIntensity = 0.18f;
+    constexpr int   kBloomBlurPasses = 5;
+    constexpr float kExposure = 0.42f;
 
     auto defaultMaterial = std::make_shared<Material>();
     defaultMaterial->albedoTint = glm::vec3(1.0f, 1.0f, 1.0f);
@@ -277,13 +265,10 @@ int main() {
     scene.Registry.emplace<PlayerTag>(playerEntity);
     scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
 
-    // --- Player visual: rigged mesh + skeletal animation --------------------
     auto playerVisualEntity = scene.CreateEntity();
     auto& playerVisualTransform = scene.Registry.get<Transform>(playerVisualEntity);
     playerVisualTransform.Parent = playerEntity;
     playerVisualTransform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
-    // Mixamo exports in centimeters — a ~170cm-tall humanoid needs scaling
-    // down by 0.01 to match this engine's meter-scale units.
     playerVisualTransform.Scale = glm::vec3(0.01f, 0.01f, 0.01f);
 
     auto playerModel = SceneLoader::GetOrLoadModel("models/player/player.fbx");
@@ -304,7 +289,7 @@ int main() {
     FollowCamera followCamera;
     bool playMode = false;
 
-    ChunkManager chunkManager(50.0f, 5);
+    ChunkManager chunkManager(50.0f, 6);
 
     ScriptEngine scriptEngine;
     scriptEngine.Initialize(&scene);
@@ -315,22 +300,15 @@ int main() {
     GridRenderer gridRenderer;
     Skybox skybox;
 
-    // --- Frustum + distance culling ------------------------------------
-    // The frozen frustum is a fixed-position "tripod" camera you manually
-    // pan/tilt with the arrow keys while freezeCullingFrustum is true —
-    // deliberately separate from the free-fly camera you're viewing
-    // through, so you can fly around outside the frozen frustum with normal
-    // WASD+click-drag navigation while independently sweeping its facing
-    // direction to watch objects render/cull in real time.
     Frustum cullingFrustum;
     FrustumRenderer frustumRenderer;
     bool freezeCullingFrustum = false;
     bool freezeCullingFrustumWasEnabled = false;
     glm::mat4 frozenViewProjection(1.0f);
     glm::vec3 frozenCameraPosition(0.0f);
-    float frozenFrustumYaw = -90.0f;   // matches Camera's own yaw convention/default
+    float frozenFrustumYaw = -90.0f;
     float frozenFrustumPitch = 0.0f;
-    float maxRenderDistance = 200.0f;
+    float maxRenderDistance = 300.0f;
     int renderedEntityCount = 0;
     int culledEntityCount = 0;
 
@@ -338,7 +316,19 @@ int main() {
     bool altRWasPressed = false;
     bool spaceWasPressed = false;
     bool escWasPressed = false;
-    bool deleteWasPressed = false; // edge-detects Delete so holding it doesn't repeat-delete
+    bool deleteWasPressed = false;
+
+    // --- Temporary profiling instrumentation ----------------------------
+    // Logs a per-system frame-time breakdown once per second so you can see
+    // where time is actually going (physics step, chunk streaming, spatial
+    // grid rebuild, rigid body transform sync, culling+draw, bloom) instead
+    // of only having one aggregate FPS number.
+    float profileLogTimer = 0.0f;
+    auto profileStart = []() { return std::chrono::high_resolution_clock::now(); };
+    auto profileMs = [](auto start) {
+        return std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - start).count();
+    };
 
     WindowUserData userData{
         &camera, &followCamera, &playMode, &aspectRatio, &editorUI,
@@ -387,9 +377,6 @@ int main() {
         *userData->lastCursorX = xpos;
         *userData->lastCursorY = ypos;
 
-        // Any noticeable movement while the button is held means this is a
-        // look-drag, not a click — HandleViewportClick should be skipped on
-        // release in that case (see mouse button callback below).
         if (std::abs(xOffset) > 1.0f || std::abs(yOffset) > 1.0f) {
             *userData->mouseLookDragged = true;
         }
@@ -423,11 +410,6 @@ int main() {
                 *userData->mouseLookEnabled = false;
                 SetCursorMode(win, GLFW_CURSOR_NORMAL, false);
 
-                // A quick press+release with no drag in between is a
-                // click-to-select rather than a look-pan. Skip picking
-                // entirely while the gizmo is actively being dragged, so
-                // releasing a gizmo handle doesn't also re-select whatever
-                // happens to be underneath it.
                 if (!*userData->mouseLookDragged && !userData->editorUI->IsGizmoActive()) {
                     double mouseX = 0.0, mouseY = 0.0;
                     glfwGetCursorPos(win, &mouseX, &mouseY);
@@ -469,10 +451,6 @@ int main() {
 
         auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
         *userData->aspectRatio = (float)newWidth / (float)newHeight;
-        // Post-process framebuffer resizing is handled in the main loop
-        // (comparing against lastKnownFramebufferWidth/Height) rather than
-        // here, since recreating GL objects from inside a GLFW callback —
-        // which can fire mid-frame — is asking for trouble.
     });
 
     glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
@@ -498,15 +476,6 @@ int main() {
         }
     });
 
-    // Pre-populate chunks around the spawn point BEFORE showing the window.
-    // ChunkManager::Update's first-ever call is expensive (JSON parsing +
-    // procedural city-block generation + ~45 physics body creations across
-    // 9 chunks) — running it here, while the window is still hidden, keeps
-    // that burst out of the visible first frame. Skipping this was exactly
-    // what reintroduced the missing-title-bar bug: the window was already
-    // shown by the time this work ran, so it became a blocking freeze with
-    // no glfwPollEvents() in between, which is the same DWM decoration
-    // issue the show-window-last reordering below was meant to prevent.
     chunkManager.Update(camera.Position, scene, physicsWorld);
 
     glfwShowWindow(window);
@@ -514,11 +483,6 @@ int main() {
     glfwFocusWindow(window);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
-    // Windows sometimes fails to compute non-client frame extents for a
-    // window that was hidden at maximize time. SWP_FRAMECHANGED forces the
-    // OS to recalculate and redraw the title bar/border explicitly, rather
-    // than relying on maximize alone to trigger it. Must run after
-    // glfwMaximizeWindow so it recalculates against the final window state.
     HWND hwnd = glfwGetWin32Window(window);
     SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
@@ -544,9 +508,6 @@ int main() {
         }
         editorUI.UpdatePerformanceStats(deltaTime, framebufferWidth, framebufferHeight);
 
-        // Recreate the HDR/bloom framebuffers if the window was resized —
-        // done here rather than in the resize callback itself (see comment
-        // on glfwSetFramebufferSizeCallback above).
         if (framebufferWidth > 0 && framebufferHeight > 0 &&
             (framebufferWidth != lastKnownFramebufferWidth || framebufferHeight != lastKnownFramebufferHeight)) {
             CreatePostProcessTargets(postProcess, framebufferWidth, framebufferHeight);
@@ -573,16 +534,11 @@ int main() {
             mouseLookEnabled = false;
             mouseLookNeedsReset = true;
 
-            // Snap back to the idle animation state immediately upon exiting via ESC
             currentPlayerAnimState = PlayerAnimState::Idle;
             playerAnimator.PlayAnimation(playerIdleAnim);
         }
         escWasPressed = escHeld;
 
-        // Delete removes the currently selected entity — only active in
-        // editor mode, and only checked while no ImGui text field/widget
-        // wants keyboard input (so typing "Delete" in a rename box doesn't
-        // also nuke the selected entity).
         const bool deleteHeld = glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS;
         if (!playMode && deleteHeld && !deleteWasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
             editorUI.DeleteSelectedEntity(scene, physicsWorld);
@@ -603,8 +559,6 @@ int main() {
                 camera.Position -= glm::vec3(0.0f, 1.0f, 0.0f) * camera.GetMoveSpeed() * kVerticalSpeedMultiplier * deltaTime;
             }
 
-            // Gizmo mode hotkeys — only in editor mode, and only when ImGui
-            // isn't already consuming keyboard input (typing in a field).
             if (!ImGui::GetIO().WantCaptureKeyboard) {
                 if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
                     editorUI.CurrentGizmoOperation = GizmoOperation::Translate;
@@ -614,7 +568,10 @@ int main() {
             }
         }
 
+        // --- Profiled: physics step -----------------------------------------
+        auto t_physicsStep = profileStart();
         physicsWorld.Step(deltaTime);
+        double ms_physicsStep = profileMs(t_physicsStep);
 
         glm::vec3 viewerPosition = camera.Position;
 
@@ -625,19 +582,13 @@ int main() {
             if (d) wishDir += followCamera.GetRightXZ();
             if (a) wishDir -= followCamera.GetRightXZ();
 
-            // --- Face the player toward movement direction ---
             if (glm::length(wishDir) > 0.001f) {
                 glm::vec3 facingDir = glm::normalize(wishDir);
-                // atan2(x, z): this engine's forward is -Z (Camera's yaw=-90
-                // gives front=(0,0,-1)), so this yields the correct yaw for
-                // "facing where you're walking."
                 float targetYaw = std::atan2(facingDir.x, facingDir.z);
                 glm::quat targetRotation = glm::angleAxis(targetYaw, glm::vec3(0.0f, 1.0f, 0.0f));
 
-                // Slerp toward the target facing instead of snapping, so
-                // strafing/backward movement doesn't instantly flip the model.
                 glm::quat& currentRotation = scene.Registry.get<Transform>(playerEntity).Rotation;
-                constexpr float kTurnSpeed = 12.0f; // higher = snappier turning
+                constexpr float kTurnSpeed = 12.0f;
                 currentRotation = glm::slerp(currentRotation, targetRotation, glm::min(kTurnSpeed * deltaTime, 1.0f));
             }
 
@@ -648,7 +599,6 @@ int main() {
             characterController.Sprinting = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
             characterController.Update(deltaTime, wishDir, jumpEdge);
 
-            // --- Locomotion animation state switch ---
             PlayerAnimState desiredAnimState = PlayerAnimState::Idle;
             if (glm::length(wishDir) > 0.001f) {
                 desiredAnimState = characterController.Sprinting ? PlayerAnimState::Run : PlayerAnimState::Walk;
@@ -683,9 +633,6 @@ int main() {
             viewerPosition = playerPos;
         }
 
-        // Only advance animation time while in play mode; otherwise tick by
-        // 0.0f to freeze on whatever pose is currently showing (idle, after
-        // the resets above).
         float frameTime = playMode ? deltaTime : 0.0f;
         playerAnimator.UpdateAnimation(frameTime);
 
@@ -701,22 +648,9 @@ int main() {
         const glm::vec3 activeCameraPos = playMode ? followCamera.Position : camera.Position;
         const glm::mat4 activeViewProjection = activeProjection * activeView;
 
-        // Freeze-frustum debug feature: the frozen frustum is a
-        // fixed-position "tripod" — its POSITION is captured once, the
-        // instant freezeCullingFrustum flips on, from wherever the live
-        // camera happened to be. Its ORIENTATION is then driven manually by
-        // arrow keys every frame while frozen (Left/Right = yaw, Up/Down =
-        // pitch), completely independent of the free-fly camera you're
-        // actually viewing through — so you can fly anywhere with normal
-        // WASD+click-drag navigation while separately sweeping the frozen
-        // frustum's facing direction and watching objects render/cull live.
         if (freezeCullingFrustum) {
             if (!freezeCullingFrustumWasEnabled) {
                 frozenCameraPosition = activeCameraPos;
-                // Derive a starting yaw/pitch from whichever camera was
-                // active at the moment of freezing, so the frustum starts
-                // out facing wherever you were already looking rather than
-                // snapping to some arbitrary default direction.
                 const glm::mat4 invActiveView = glm::inverse(activeView);
                 const glm::vec3 activeForward = glm::normalize(glm::vec3(invActiveView * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
                 frozenFrustumPitch = glm::degrees(std::asin(glm::clamp(activeForward.y, -1.0f, 1.0f)));
@@ -724,7 +658,7 @@ int main() {
             }
 
             if (!ImGui::GetIO().WantCaptureKeyboard) {
-                constexpr float kFrustumRotateSpeed = 60.0f; // degrees/sec
+                constexpr float kFrustumRotateSpeed = 60.0f;
                 if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)  frozenFrustumYaw -= kFrustumRotateSpeed * deltaTime;
                 if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) frozenFrustumYaw += kFrustumRotateSpeed * deltaTime;
                 if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)    frozenFrustumPitch += kFrustumRotateSpeed * deltaTime;
@@ -739,8 +673,6 @@ int main() {
             frozenForward = glm::normalize(frozenForward);
 
             const glm::mat4 frozenView = glm::lookAt(frozenCameraPosition, frozenCameraPosition + frozenForward, glm::vec3(0.0f, 1.0f, 0.0f));
-            // Reuses whatever projection (FOV/near/far) the free-fly camera
-            // uses — the frozen frustum doesn't need its own separate FOV setting.
             frozenViewProjection = camera.GetProjectionMatrix(aspectRatio) * frozenView;
         } else {
             frozenViewProjection = activeViewProjection;
@@ -756,9 +688,6 @@ int main() {
             gridRenderer.Render(camera, aspectRatio);
         }
 
-        // 0.7 multiplier: ComputeSunLightColor's raw output (derived straight from
-        // atmospheric transmittance) reads a bit hot on flat matte materials —
-        // this pulls it back without touching the sky's own appearance.
         constexpr float kDirLightIntensity = 0.7f;
         const glm::vec3 dirLightColor = ComputeSunLightColor(-kDirLightDirection) * kDirLightIntensity;
 
@@ -772,23 +701,22 @@ int main() {
         triangleShader.SetVec3("uPointLightPos", glm::vec3(1.5f, 1.5f, 1.5f));
         triangleShader.SetVec3("uPointLightColor", glm::vec3(1.0f, 0.8f, 0.5f));
 
+        // --- Profiled: spatial grid rebuild --------------------------------
+        auto t_spatialGrid = profileStart();
         spatialGrid.Clear();
         auto posView = scene.Registry.view<Transform>();
         for (auto entity : posView) {
             spatialGrid.Insert(entity, posView.get<Transform>(entity).Position);
         }
+        double ms_spatialGrid = profileMs(t_spatialGrid);
 
+        // --- Profiled: chunk streaming --------------------------------------
+        auto t_chunkUpdate = profileStart();
         chunkManager.Update(viewerPosition, scene, physicsWorld);
+        double ms_chunkUpdate = profileMs(t_chunkUpdate);
 
-        // Independent of render/streaming radius — dynamic bodies farther
-        // than this from the viewer get put to sleep so Jolt stops
-        // simulating them, and static bodies (ground plates, building
-        // colliders — never move once created) skip the GetBodyPosition/
-        // GetBodyRotation readback entirely, since re-reading them every
-        // frame was pure wasted work that scales directly with how many
-        // chunks are streamed in (exactly what got expensive at radius 6).
-        constexpr float kPhysicsActivationRadius = 30.0f;
-
+        // --- Profiled: rigid body transform sync ----------------------------
+        auto t_rigidBodySync = profileStart();
         auto rigidBodyView = scene.Registry.view<Transform, RigidBody>();
         for (auto entity : rigidBodyView) {
             auto& transform = rigidBodyView.get<Transform>(entity);
@@ -797,27 +725,10 @@ int main() {
                 continue;
             }
 
-            if (rigidBody.IsStatic) {
-                continue;
-            }
-
-            const float distanceToViewer = glm::length(transform.Position - viewerPosition);
-            const bool shouldBeActive = distanceToViewer <= kPhysicsActivationRadius;
-            const bool isCurrentlyActive = physicsWorld.GetBodyInterface().IsActive(rigidBody.BodyId);
-
-            if (shouldBeActive && !isCurrentlyActive) {
-                physicsWorld.GetBodyInterface().ActivateBody(rigidBody.BodyId);
-            } else if (!shouldBeActive && isCurrentlyActive) {
-                physicsWorld.GetBodyInterface().DeactivateBody(rigidBody.BodyId);
-            }
-
-            if (!shouldBeActive) {
-                continue;
-            }
-
             transform.Position = physicsWorld.GetBodyPosition(rigidBody.BodyId);
             transform.Rotation = physicsWorld.GetBodyRotation(rigidBody.BodyId);
         }
+        double ms_rigidBodySync = profileMs(t_rigidBodySync);
 
         scriptEngine.CallUpdate(deltaTime);
         scriptEngine.CheckForReload(deltaTime);
@@ -830,12 +741,41 @@ int main() {
             Log::Info("Spatial query: {} entities within 20 units of viewer", nearby.size());
         }
 
+        // --- Profiled: culling + draw (both instanced and non-instanced) ---
+        auto t_cullingAndDraw = profileStart();
+
         renderedEntityCount = 0;
         culledEntityCount = 0;
 
-        auto view = scene.Registry.view<Transform, MeshRenderer>();
-        for (auto entity : view) {
-            auto [transform, renderer] = view.get<Transform, MeshRenderer>(entity);
+        struct InstanceGroupKey {
+            Model* model;
+            Material* material;
+            bool operator==(const InstanceGroupKey& other) const {
+                return model == other.model && material == other.material;
+            }
+        };
+        struct InstanceGroupKeyHash {
+            size_t operator()(const InstanceGroupKey& key) const {
+                return std::hash<void*>()(key.model) ^ (std::hash<void*>()(key.material) << 1);
+            }
+        };
+
+        static std::unordered_map<InstanceGroupKey, std::vector<glm::mat4>, InstanceGroupKeyHash> instanceGroups;
+        instanceGroups.clear();
+
+        // Query only entities near the camera instead of iterating the
+        // entire registry — this is what makes maxRenderDistance actually
+        // reduce per-frame CPU cost, rather than just skipping the draw
+        // call after still paying for the world-matrix/culling math on
+        // every entity in the scene regardless of distance.
+        const auto nearbyEntities = spatialGrid.QueryRadius(frozenCameraPosition, maxRenderDistance);
+
+        for (entt::entity entity : nearbyEntities) {
+            if (!scene.Registry.valid(entity) || !scene.Registry.all_of<Transform, MeshRenderer>(entity)) {
+                continue;
+            }
+            auto& transform = scene.Registry.get<Transform>(entity);
+            auto& renderer = scene.Registry.get<MeshRenderer>(entity);
 
             if (!renderer.ModelRef) {
                 continue;
@@ -843,14 +783,6 @@ int main() {
 
             glm::mat4 worldMatrix = scene.GetWorldMatrix(entity);
 
-            // --- Frustum + distance culling ---------------------------
-            // Bounding sphere from the model's real local-space bounds
-            // (Model already tracks these from its actual vertex data,
-            // not a fixed-size guess) — center transformed by the full
-            // world matrix, radius conservatively covers the local
-            // half-diagonal scaled by the transform's largest axis scale
-            // factor (safe for non-uniform scale, if a bit generous on
-            // heavily-stretched objects).
             const glm::vec3 localMin = renderer.ModelRef->GetBoundsMin();
             const glm::vec3 localMax = renderer.ModelRef->GetBoundsMax();
             const glm::vec3 localCenter = (localMin + localMax) * 0.5f;
@@ -873,24 +805,49 @@ int main() {
             }
             ++renderedEntityCount;
 
-            triangleShader.SetMat4("uModel", worldMatrix);
-
             if (entity == playerVisualEntity) {
+                triangleShader.SetMat4("uModel", worldMatrix);
                 triangleShader.SetMat4Array("uBoneMatrices", playerAnimator.GetFinalBoneMatrices());
+                renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
+                continue;
             }
 
-            renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
+            InstanceGroupKey key{ renderer.ModelRef.get(), renderer.MaterialRef.get() };
+            instanceGroups[key].push_back(worldMatrix);
         }
 
-        // Debug: visualize the (possibly frozen) culling frustum as a
-        // wireframe, viewed from whichever camera is actually rendering
-        // right now. Editor-only — drawing this during Play mode would be
-        // immersion-breaking and there's no debug reason to see it then.
+        bool instancedShaderBoundThisFrame = false;
+        for (auto& [key, matrices] : instanceGroups) {
+            if (matrices.size() == 1) {
+                triangleShader.Bind();
+                triangleShader.SetMat4("uModel", matrices[0]);
+                key.model->Draw(triangleShader, key.material);
+                continue;
+            }
+
+            if (!instancedShaderBoundThisFrame) {
+                triangleInstancedShader.Bind();
+                triangleInstancedShader.SetMat4("uView", activeView);
+                triangleInstancedShader.SetMat4("uProjection", activeProjection);
+                triangleInstancedShader.SetVec3("uViewPos", activeCameraPos);
+                triangleInstancedShader.SetVec3("uDirLightDirection", kDirLightDirection);
+                triangleInstancedShader.SetVec3("uDirLightColor", dirLightColor);
+                triangleInstancedShader.SetVec3("uPointLightPos", glm::vec3(1.5f, 1.5f, 1.5f));
+                triangleInstancedShader.SetVec3("uPointLightColor", glm::vec3(1.0f, 0.8f, 0.5f));
+                instancedShaderBoundThisFrame = true;
+            }
+            key.model->DrawInstanced(triangleInstancedShader, key.material, matrices);
+        }
+
         if (!playMode && freezeCullingFrustum) {
             frustumRenderer.Render(frozenViewProjection, activeViewProjection);
         }
 
-        // --- Pass 2: bright-pass extraction (half-res) ----------------------
+        double ms_cullingAndDraw = profileMs(t_cullingAndDraw);
+
+        // --- Profiled: bloom passes 2/3/4 -----------------------------------
+        auto t_bloom = profileStart();
+
         glDisable(GL_DEPTH_TEST);
         glBindVertexArray(fullscreenVAO);
 
@@ -904,7 +861,6 @@ int main() {
         bloomThresholdShader.SetFloat("uKnee", kBloomKnee);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
-        // --- Pass 3: ping-pong Gaussian blur (half-res) ----------------------
         bool horizontal = true;
         GLuint sourceTexture = postProcess.brightTexture;
         bloomBlurShader.Bind();
@@ -922,7 +878,6 @@ int main() {
             horizontal = !horizontal;
         }
 
-        // --- Pass 4: composite HDR scene + bloom, tonemap, to the screen ----
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, framebufferWidth, framebufferHeight);
         bloomCompositeShader.Bind();
@@ -938,6 +893,17 @@ int main() {
 
         glEnable(GL_DEPTH_TEST);
         glBindVertexArray(0);
+
+        double ms_bloom = profileMs(t_bloom);
+
+        // --- Profiled: log the breakdown once per second --------------------
+        profileLogTimer += deltaTime;
+        if (profileLogTimer > 1.0f) {
+            profileLogTimer = 0.0f;
+            Log::Info("Profile ms — physics: {:.2f} chunk: {:.2f} grid: {:.2f} rbSync: {:.2f} cull+draw: {:.2f} bloom: {:.2f} total: {:.2f}",
+                ms_physicsStep, ms_chunkUpdate, ms_spatialGrid, ms_rigidBodySync, ms_cullingAndDraw, ms_bloom,
+                ms_physicsStep + ms_chunkUpdate + ms_spatialGrid + ms_rigidBodySync + ms_cullingAndDraw + ms_bloom);
+        }
 
         // --- Editor UI: drawn last, directly onto the composited backbuffer -
         editorUI.BeginFrame();
@@ -961,7 +927,6 @@ int main() {
                 scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
                 chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld);
             } else {
-                // Snap back to the idle animation state immediately upon exiting via Editor UI
                 currentPlayerAnimState = PlayerAnimState::Idle;
                 playerAnimator.PlayAnimation(playerIdleAnim);
             }

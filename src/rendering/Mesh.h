@@ -42,6 +42,16 @@ public:
 
     void Draw(const Shader& shader, const Material* overrideMaterial = nullptr) const;
 
+    // Batched draw for many instances of this exact mesh sharing one
+    // (Model, Material) pair — one glDrawElementsInstanced call instead of
+    // one glDrawElements call per instance. instanceMatrices are uploaded
+    // fresh each call (GL_DYNAMIC_DRAW) since which entities are in-frustum
+    // changes frame to frame. shader must be the instanced vertex shader
+    // variant (reads aInstanceModel per-instance instead of a uModel
+    // uniform) — triangle.frag itself is unchanged/shared between both paths.
+    void DrawInstanced(const Shader& shader, const Material* overrideMaterial,
+                        const std::vector<glm::mat4>& instanceMatrices) const;
+
     std::shared_ptr<Material> material;
 
 private:
@@ -51,4 +61,5 @@ private:
     std::vector<unsigned int> m_indices;
 
     unsigned int m_VAO, m_VBO, m_EBO;
+    unsigned int m_instanceVBO = 0; // per-instance model matrices, locations 6-9
 };

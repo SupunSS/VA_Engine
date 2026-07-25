@@ -247,6 +247,13 @@ void Model::Draw(const Shader& shader, const Material* overrideMaterial) const {
     }
 }
 
+void Model::DrawInstanced(const Shader& shader, const Material* overrideMaterial,
+                           const std::vector<glm::mat4>& instanceMatrices) const {
+    for (const auto& mesh : m_meshes) {
+        mesh->DrawInstanced(shader, overrideMaterial, instanceMatrices);
+    }
+}
+
 void Model::SetMaterial(std::shared_ptr<Material> material) {
     for (auto& mesh : m_meshes) {
         mesh->material = material;
