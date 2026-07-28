@@ -379,6 +379,28 @@ build CMakeFiles\engine.dir\src\rendering\FrustumRenderer.cpp.obj: CXX_COMPILER_
   TARGET_PDB = engine.pdb
   TARGET_SUPPORT_DIR = CMakeFiles\engine.dir
 
+build CMakeFiles\engine.dir\src\physics\VehicleController.cpp.obj: CXX_COMPILER__engine_unscanned_Release D$:\Projects\VA$ Engine\src\physics\VehicleController.cpp || cmake_object_order_depends_target_engine
+  CONFIG = Release
+  DEFINES = -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG
+  FLAGS = /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD
+  INCLUDES = -I"D:\Projects\VA Engine\src" -external:I"D:\Projects\VA Engine\vcpkg\installed\x64-windows\include" -external:W0
+  OBJECT_DIR = CMakeFiles\engine.dir
+  OBJECT_FILE_DIR = CMakeFiles\engine.dir\src\physics
+  TARGET_COMPILE_PDB = CMakeFiles\engine.dir\
+  TARGET_PDB = engine.pdb
+  TARGET_SUPPORT_DIR = CMakeFiles\engine.dir
+
+build CMakeFiles\engine.dir\src\rendering\VehicleCamera.cpp.obj: CXX_COMPILER__engine_unscanned_Release D$:\Projects\VA$ Engine\src\rendering\VehicleCamera.cpp || cmake_object_order_depends_target_engine
+  CONFIG = Release
+  DEFINES = -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG
+  FLAGS = /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD
+  INCLUDES = -I"D:\Projects\VA Engine\src" -external:I"D:\Projects\VA Engine\vcpkg\installed\x64-windows\include" -external:W0
+  OBJECT_DIR = CMakeFiles\engine.dir
+  OBJECT_FILE_DIR = CMakeFiles\engine.dir\src\rendering
+  TARGET_COMPILE_PDB = CMakeFiles\engine.dir\
+  TARGET_PDB = engine.pdb
+  TARGET_SUPPORT_DIR = CMakeFiles\engine.dir
+
 
 # =============================================================================
 # Link build statements for EXECUTABLE target engine
@@ -387,7 +409,7 @@ build CMakeFiles\engine.dir\src\rendering\FrustumRenderer.cpp.obj: CXX_COMPILER_
 #############################################
 # Link the executable engine.exe
 
-build engine.exe: CXX_EXECUTABLE_LINKER__engine_Release CMakeFiles\engine.dir\src\main.cpp.obj CMakeFiles\engine.dir\src\core\Log.cpp.obj CMakeFiles\engine.dir\src\core\memory\StackAllocator.cpp.obj CMakeFiles\engine.dir\src\core\memory\PoolAllocator.cpp.obj CMakeFiles\engine.dir\src\core\jobs\JobSystem.cpp.obj CMakeFiles\engine.dir\src\rendering\Shader.cpp.obj CMakeFiles\engine.dir\src\rendering\Camera.cpp.obj CMakeFiles\engine.dir\src\rendering\Texture.cpp.obj CMakeFiles\engine.dir\src\rendering\Mesh.cpp.obj CMakeFiles\engine.dir\src\rendering\Model.cpp.obj CMakeFiles\engine.dir\src\rendering\Material.cpp.obj CMakeFiles\engine.dir\src\rendering\Skybox.cpp.obj CMakeFiles\engine.dir\src\scene\Components.cpp.obj CMakeFiles\engine.dir\src\scene\Scene.cpp.obj CMakeFiles\engine.dir\src\scene\SpatialGrid.cpp.obj CMakeFiles\engine.dir\src\scene\SceneLoader.cpp.obj CMakeFiles\engine.dir\src\scripting\ScriptEngine.cpp.obj CMakeFiles\engine.dir\src\scene\ChunkManager.cpp.obj CMakeFiles\engine.dir\src\editor\EditorUI.cpp.obj CMakeFiles\engine.dir\src\rendering\GridRenderer.cpp.obj CMakeFiles\engine.dir\src\physics\PhysicsWorld.cpp.obj CMakeFiles\engine.dir\src\rendering\ResourceManager.cpp.obj CMakeFiles\engine.dir\src\physics\CharacterController.cpp.obj CMakeFiles\engine.dir\src\rendering\FollowCamera.cpp.obj CMakeFiles\engine.dir\src\rendering\Animation.cpp.obj CMakeFiles\engine.dir\src\rendering\Animator.cpp.obj CMakeFiles\engine.dir\src\rendering\Bone.cpp.obj CMakeFiles\engine.dir\src\rendering\Primitives.cpp.obj CMakeFiles\engine.dir\src\rendering\Frustum.cpp.obj CMakeFiles\engine.dir\src\rendering\FrustumRenderer.cpp.obj | D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\glm.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\glad.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\assimp-vc145-mt.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\lua.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\imgui.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\Jolt.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\imguizmo.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\glfw3dll.lib
+build engine.exe: CXX_EXECUTABLE_LINKER__engine_Release CMakeFiles\engine.dir\src\main.cpp.obj CMakeFiles\engine.dir\src\core\Log.cpp.obj CMakeFiles\engine.dir\src\core\memory\StackAllocator.cpp.obj CMakeFiles\engine.dir\src\core\memory\PoolAllocator.cpp.obj CMakeFiles\engine.dir\src\core\jobs\JobSystem.cpp.obj CMakeFiles\engine.dir\src\rendering\Shader.cpp.obj CMakeFiles\engine.dir\src\rendering\Camera.cpp.obj CMakeFiles\engine.dir\src\rendering\Texture.cpp.obj CMakeFiles\engine.dir\src\rendering\Mesh.cpp.obj CMakeFiles\engine.dir\src\rendering\Model.cpp.obj CMakeFiles\engine.dir\src\rendering\Material.cpp.obj CMakeFiles\engine.dir\src\rendering\Skybox.cpp.obj CMakeFiles\engine.dir\src\scene\Components.cpp.obj CMakeFiles\engine.dir\src\scene\Scene.cpp.obj CMakeFiles\engine.dir\src\scene\SpatialGrid.cpp.obj CMakeFiles\engine.dir\src\scene\SceneLoader.cpp.obj CMakeFiles\engine.dir\src\scripting\ScriptEngine.cpp.obj CMakeFiles\engine.dir\src\scene\ChunkManager.cpp.obj CMakeFiles\engine.dir\src\editor\EditorUI.cpp.obj CMakeFiles\engine.dir\src\rendering\GridRenderer.cpp.obj CMakeFiles\engine.dir\src\physics\PhysicsWorld.cpp.obj CMakeFiles\engine.dir\src\rendering\ResourceManager.cpp.obj CMakeFiles\engine.dir\src\physics\CharacterController.cpp.obj CMakeFiles\engine.dir\src\rendering\FollowCamera.cpp.obj CMakeFiles\engine.dir\src\rendering\Animation.cpp.obj CMakeFiles\engine.dir\src\rendering\Animator.cpp.obj CMakeFiles\engine.dir\src\rendering\Bone.cpp.obj CMakeFiles\engine.dir\src\rendering\Primitives.cpp.obj CMakeFiles\engine.dir\src\rendering\Frustum.cpp.obj CMakeFiles\engine.dir\src\rendering\FrustumRenderer.cpp.obj CMakeFiles\engine.dir\src\physics\VehicleController.cpp.obj CMakeFiles\engine.dir\src\rendering\VehicleCamera.cpp.obj | D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\glm.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\glad.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\assimp-vc145-mt.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\lua.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\imgui.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\Jolt.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\imguizmo.lib D$:\Projects\VA$ Engine\vcpkg\installed\x64-windows\lib\glfw3dll.lib
   CONFIG = Release
   FLAGS = /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -MD
   LINK_FLAGS = /machine:x64 /INCREMENTAL:NO /subsystem:console

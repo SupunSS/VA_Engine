@@ -50,6 +50,8 @@ add_executable(engine
     src/rendering/Primitives.cpp
     src/rendering/Frustum.cpp
     src/rendering/FrustumRenderer.cpp
+    src/physics/VehicleController.cpp
+    src/rendering/VehicleCamera.cpp
 )
 
 target_include_directories(engine PRIVATE

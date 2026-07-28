@@ -41,7 +41,22 @@ struct ChunkId {
     bool operator==(const ChunkId& other) const { return x == other.x && z == other.z; }
 };
 
+#include <array>
+
+class VehicleController;
+
 struct PlayerTag {};
+
+struct VehicleTag {};
+
+struct VehicleOccupant {
+    entt::entity DriverEntity = entt::null;
+};
+
+struct VehicleComponent {
+    std::shared_ptr<VehicleController> Controller;
+    std::array<entt::entity, 4> WheelEntities{ entt::null, entt::null, entt::null, entt::null };
+};
 
 enum class PhysicsShapeType {
     Box = 0,

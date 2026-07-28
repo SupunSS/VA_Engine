@@ -1,6 +1,12 @@
 #include "Material.h"
 
 void Material::Bind(const Shader& shader) const {
+    // A real Material object is bound here, even if it has no texture — so
+    // this is never the checkerboard-fallback case. See triangle.frag /
+    // Mesh::Draw's ResetMaterialUniformsToDefault for the genuinely-no-
+    // material case, which is the only place this should be set to 1.
+    shader.SetInt("uUseCheckerFallback", 0);
+
     if (albedoMap) {
         albedoMap->Bind(0);
         shader.SetInt("uAlbedoMap", 0);

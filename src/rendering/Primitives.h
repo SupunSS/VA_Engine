@@ -20,4 +20,20 @@ std::shared_ptr<Model> CreateSphere(float radius = 0.5f, int latitudeSegments = 
 // the origin: base sits at -height/2, apex at +height/2.
 std::shared_ptr<Model> CreatePyramid(float baseHalfWidth = 0.5f, float height = 1.0f);
 
+// Generates a cylinder wheel oriented along the X axis (width along X, radius in YZ).
+std::shared_ptr<Model> CreateWheel(float radius = 0.35f, float width = 0.2f, int segments = 24);
+
+// Generates a flat-shaded box centered at the origin with given half-extents.
+// Each face has its own vertices so lighting reads as distinct flat facets.
+std::shared_ptr<Model> CreateBox(float halfX = 0.5f, float halfY = 0.5f, float halfZ = 0.5f);
+
+// Generates a low-poly vehicle body mesh centered at the origin.
+// The body consists of a wide lower section plus a narrower raised cabin,
+// all flat-shaded for a stylized look. Dimensions should match the physics
+// chassis half-extents (halfX, halfY, halfZ) passed in.
+// cabinHeightFraction controls how tall the cabin is relative to halfY.
+std::shared_ptr<Model> CreateVehicleBody(
+    float halfX = 0.9f, float halfY = 0.4f, float halfZ = 1.8f,
+    float cabinHeightFraction = 1.1f);
+
 } // namespace Primitives

@@ -12,6 +12,7 @@
 #include <cmath>
 #include <algorithm>
 #include <unordered_map>
+#include <unordered_set>
 #include "rendering/Shader.h"
 #include "rendering/Camera.h"
 #include "rendering/Texture.h"
@@ -31,7 +32,10 @@
 #include "physics/PhysicsWorld.h"
 #include "rendering/Material.h"
 #include "physics/CharacterController.h"
+#include "physics/VehicleController.h"
 #include "rendering/FollowCamera.h"
+#include "rendering/VehicleCamera.h"
+#include "rendering/Primitives.h"
 #include "rendering/Skybox.h"
 #include "rendering/Frustum.h"
 #include "rendering/FrustumRenderer.h"
@@ -40,7 +44,9 @@ namespace {
 struct WindowUserData {
     Camera* camera;
     FollowCamera* followCamera;
+    VehicleCamera* vehicleCamera;
     bool* playMode;
+    bool* insideVehicle;
     float* aspectRatio;
     EditorUI* editorUI;
     bool* mouseLookEnabled;
@@ -165,6 +171,63 @@ void CreatePostProcessTargets(PostProcessTargets& t, int width, int height)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+entt::entity SpawnTestVehicle(Scene& scene, PhysicsWorld& physicsWorld, const glm::vec3& position) {
+    // Physics half-extents (must match VehicleController::CreateVehicle)
+    constexpr float kHalfX = 0.9f;
+    constexpr float kHalfY = 0.4f;
+    constexpr float kHalfZ = 1.8f;
+
+    auto vehicleEntity = scene.CreateEntity();
+    scene.Registry.emplace<VehicleTag>(vehicleEntity);
+    scene.Registry.emplace<VehicleOccupant>(vehicleEntity);
+
+    auto& transform = scene.Registry.get<Transform>(vehicleEntity);
+    transform.Position = position;
+    transform.Scale = glm::vec3(1.0f); // model already in world-scale units
+
+    // ---- Chassis visual: low-poly car body --------------------------------
+    auto chassisModel = Primitives::CreateVehicleBody(kHalfX, kHalfY, kHalfZ, 1.1f);
+    auto chassisMaterial = std::make_shared<Material>();
+    chassisMaterial->albedoTint = glm::vec3(0.08f, 0.40f, 0.80f); // vivid blue body
+    scene.Registry.emplace<MeshRenderer>(vehicleEntity, chassisModel, chassisMaterial);
+
+    // ---- Physics + vehicle controller ------------------------------------
+    auto controller = std::make_shared<VehicleController>(physicsWorld, position);
+    auto& vehicleComp = scene.Registry.emplace<VehicleComponent>(vehicleEntity);
+    vehicleComp.Controller = controller;
+
+    // ---- Wheel visuals ---------------------------------------------------
+    constexpr float kWheelRadius = 0.35f;
+    constexpr float kWheelWidth  = 0.25f;
+    auto wheelModel = Primitives::CreateWheel(kWheelRadius, kWheelWidth, 16);
+
+    auto tyreMaterial = std::make_shared<Material>();
+    tyreMaterial->albedoTint = glm::vec3(0.12f, 0.12f, 0.12f);
+
+    auto rimMaterial = std::make_shared<Material>();
+    rimMaterial->albedoTint = glm::vec3(0.75f, 0.75f, 0.80f);
+
+    for (int i = 0; i < 4; ++i) {
+        auto wheelEntity = scene.CreateEntity();
+        scene.Registry.emplace<MeshRenderer>(wheelEntity, wheelModel, tyreMaterial);
+
+        glm::vec3 wheelPos;
+        glm::quat wheelRot;
+        controller->GetWheelTransform(i, wheelPos, wheelRot);
+
+        auto& wt = scene.Registry.get<Transform>(wheelEntity);
+        wt.Position = wheelPos;
+        wt.Rotation = wheelRot;
+        wt.Scale    = glm::vec3(1.0f);
+
+        vehicleComp.WheelEntities[i] = wheelEntity;
+    }
+
+    Log::Info("Spawned low-poly vehicle entity with 4 wheels at ({}, {}, {}).",
+              position.x, position.y, position.z);
+    return vehicleEntity;
+}
+
 } // namespace
 
 int main() {
@@ -287,7 +350,10 @@ int main() {
     CharacterController characterController(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
     const glm::vec3 kPlayerSpawnPosition(0.0f, 1.0f, 0.0f);
     FollowCamera followCamera;
+    VehicleCamera vehicleCamera;
     bool playMode = false;
+    bool insideVehicle = false;
+    entt::entity activeVehicleEntity = entt::null;
 
     ChunkManager chunkManager(50.0f, 6);
 
@@ -296,6 +362,14 @@ int main() {
     scriptEngine.RunScript("scripts/test.lua");
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+
+    // Captured once, right after the camera is constructed, so "Stop" can
+    // restore both position AND look direction exactly as they were when
+    // the engine started (Position alone isn't enough — yaw/pitch decide
+    // which way the camera is actually facing).
+    const glm::vec3 kInitialCameraPosition = camera.Position;
+    const float kInitialCameraYaw = camera.GetYaw();
+    const float kInitialCameraPitch = camera.GetPitch();
 
     GridRenderer gridRenderer;
     Skybox skybox;
@@ -312,17 +386,22 @@ int main() {
     int renderedEntityCount = 0;
     int culledEntityCount = 0;
 
+    // --- Debug overlay state for the vehicle specifically ---
+    float debugVehicleDistance = 0.0f;
+    float debugVehicleRadius = 0.0f;
+    float debugVehicleDepth = 0.0f;
+    bool debugVehicleWithinDistance = false;
+    bool debugVehicleInsideFrustum = false;
+    int debugVisibleWheelCount = 0;
+
     float lastFrameTime = 0.0f;
     bool altRWasPressed = false;
     bool spaceWasPressed = false;
     bool escWasPressed = false;
     bool deleteWasPressed = false;
+    bool fWasPressed = false;
 
     // --- Temporary profiling instrumentation ----------------------------
-    // Logs a per-system frame-time breakdown once per second so you can see
-    // where time is actually going (physics step, chunk streaming, spatial
-    // grid rebuild, rigid body transform sync, culling+draw, bloom) instead
-    // of only having one aggregate FPS number.
     float profileLogTimer = 0.0f;
     auto profileStart = []() { return std::chrono::high_resolution_clock::now(); };
     auto profileMs = [](auto start) {
@@ -330,8 +409,60 @@ int main() {
             std::chrono::high_resolution_clock::now() - start).count();
     };
 
+    // --- Reset helpers ---------------------------------------------------
+    auto DestroyAllVehicles = [&]() {
+        auto existingVehicles = scene.Registry.view<VehicleTag, VehicleComponent>();
+        std::vector<entt::entity> vehiclesToDestroy(existingVehicles.begin(), existingVehicles.end());
+        for (auto oldVehicleEntity : vehiclesToDestroy) {
+            auto& oldVehicleComp = scene.Registry.get<VehicleComponent>(oldVehicleEntity);
+            for (auto wheelEnt : oldVehicleComp.WheelEntities) {
+                if (wheelEnt != entt::null && scene.Registry.valid(wheelEnt)) {
+                    scene.DestroyEntity(wheelEnt);
+                }
+            }
+            scene.DestroyEntity(oldVehicleEntity);
+        }
+    };
+
+    auto ResetToInitialState = [&]() {
+        if (insideVehicle) {
+            scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
+            insideVehicle = false;
+        }
+        activeVehicleEntity = entt::null;
+
+        DestroyAllVehicles();
+
+        {
+            std::vector<entt::entity> toDestroy;
+            auto view = scene.Registry.view<RigidBody, PhysicsTestBody>();
+            for (auto entity : view) {
+                toDestroy.push_back(entity);
+            }
+            for (auto entity : toDestroy) {
+                auto& rb = scene.Registry.get<RigidBody>(entity);
+                if (!rb.BodyId.IsInvalid()) {
+                    physicsWorld.DestroyBody(rb.BodyId);
+                }
+                scene.DestroyEntity(entity);
+            }
+        }
+
+        characterController.SetPosition(kPlayerSpawnPosition);
+        scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
+        scene.Registry.get<Transform>(playerEntity).Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+
+        currentPlayerAnimState = PlayerAnimState::Idle;
+        playerAnimator.PlayAnimation(playerIdleAnim);
+
+        camera.Position = kInitialCameraPosition;
+        camera.SetYawPitch(kInitialCameraYaw, kInitialCameraPitch);
+
+        editorUI.SelectedEntity = entt::null;
+    };
+
     WindowUserData userData{
-        &camera, &followCamera, &playMode, &aspectRatio, &editorUI,
+        &camera, &followCamera, &vehicleCamera, &playMode, &insideVehicle, &aspectRatio, &editorUI,
         &mouseLookEnabled, &mouseLookNeedsReset, &lastCursorX, &lastCursorY,
         &mouseLookDragged, &scene
     };
@@ -353,7 +484,11 @@ int main() {
             float yOffset = (float)*userData->lastCursorY - (float)ypos;
             *userData->lastCursorX = xpos;
             *userData->lastCursorY = ypos;
-            userData->followCamera->ProcessMouseMovement(xOffset, yOffset);
+            if (*userData->insideVehicle) {
+                userData->vehicleCamera->ProcessMouseMovement(xOffset, yOffset);
+            } else {
+                userData->followCamera->ProcessMouseMovement(xOffset, yOffset);
+            }
             return;
         }
 
@@ -432,7 +567,11 @@ int main() {
         auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
 
         if (*userData->playMode) {
-            userData->followCamera->ProcessScroll((float)yoffset);
+            if (*userData->insideVehicle) {
+                userData->vehicleCamera->ProcessScroll((float)yoffset);
+            } else {
+                userData->followCamera->ProcessScroll((float)yoffset);
+            }
             return;
         }
 
@@ -476,7 +615,7 @@ int main() {
         }
     });
 
-    chunkManager.Update(camera.Position, scene, physicsWorld);
+    chunkManager.Update(camera.Position, scene, physicsWorld, maxRenderDistance);
 
     glfwShowWindow(window);
     glfwMaximizeWindow(window);
@@ -534,8 +673,7 @@ int main() {
             mouseLookEnabled = false;
             mouseLookNeedsReset = true;
 
-            currentPlayerAnimState = PlayerAnimState::Idle;
-            playerAnimator.PlayAnimation(playerIdleAnim);
+            ResetToInitialState();
         }
         escWasPressed = escHeld;
 
@@ -575,62 +713,150 @@ int main() {
 
         glm::vec3 viewerPosition = camera.Position;
 
-        if (playMode) {
-            glm::vec3 wishDir(0.0f);
-            if (w) wishDir += followCamera.GetForwardXZ();
-            if (s) wishDir -= followCamera.GetForwardXZ();
-            if (d) wishDir += followCamera.GetRightXZ();
-            if (a) wishDir -= followCamera.GetRightXZ();
-
-            if (glm::length(wishDir) > 0.001f) {
-                glm::vec3 facingDir = glm::normalize(wishDir);
-                float targetYaw = std::atan2(facingDir.x, facingDir.z);
-                glm::quat targetRotation = glm::angleAxis(targetYaw, glm::vec3(0.0f, 1.0f, 0.0f));
-
-                glm::quat& currentRotation = scene.Registry.get<Transform>(playerEntity).Rotation;
-                constexpr float kTurnSpeed = 12.0f;
-                currentRotation = glm::slerp(currentRotation, targetRotation, glm::min(kTurnSpeed * deltaTime, 1.0f));
-            }
-
-            bool spaceHeld = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
-            bool jumpEdge = spaceHeld && !spaceWasPressed;
-            spaceWasPressed = spaceHeld;
-
-            characterController.Sprinting = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
-            characterController.Update(deltaTime, wishDir, jumpEdge);
-
-            PlayerAnimState desiredAnimState = PlayerAnimState::Idle;
-            if (glm::length(wishDir) > 0.001f) {
-                desiredAnimState = characterController.Sprinting ? PlayerAnimState::Run : PlayerAnimState::Walk;
-            }
-            if (desiredAnimState != currentPlayerAnimState) {
-                currentPlayerAnimState = desiredAnimState;
-                switch (currentPlayerAnimState) {
-                    case PlayerAnimState::Idle: playerAnimator.PlayAnimation(playerIdleAnim); break;
-                    case PlayerAnimState::Walk: playerAnimator.PlayAnimation(playerWalkAnim); break;
-                    case PlayerAnimState::Run:  playerAnimator.PlayAnimation(playerRunAnim);  break;
+        const bool fHeld = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
+        if (playMode && fHeld && !fWasPressed) {
+            if (!insideVehicle) {
+                glm::vec3 playerPos = characterController.GetPosition();
+                auto nearby = spatialGrid.QueryRadius(playerPos, 4.0f);
+                entt::entity candidateVehicle = entt::null;
+                for (auto ent : nearby) {
+                    if (scene.Registry.valid(ent) && scene.Registry.all_of<VehicleTag, VehicleComponent>(ent)) {
+                        candidateVehicle = ent;
+                        break;
+                    }
                 }
+                if (candidateVehicle != entt::null) {
+                    insideVehicle = true;
+                    activeVehicleEntity = candidateVehicle;
+                    scene.Registry.get<VehicleOccupant>(activeVehicleEntity).DriverEntity = playerEntity;
+                    scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.0f);
+                    {
+                        auto& vc = scene.Registry.get<VehicleComponent>(activeVehicleEntity);
+                        if (vc.Controller) {
+                            glm::vec3 snapPos; glm::quat snapRot;
+                            vc.Controller->GetChassisTransform(snapPos, snapRot);
+                            vehicleCamera.SetTarget(snapPos, snapRot, 0.0f, 0.016f);
+                        }
+                    }
+                    Log::Info("Entered vehicle");
+                }
+            } else {
+                if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity)) {
+                    auto& vehicleComp = scene.Registry.get<VehicleComponent>(activeVehicleEntity);
+                    if (vehicleComp.Controller) {
+                        glm::vec3 chassisPos;
+                        glm::quat chassisRot;
+                        vehicleComp.Controller->GetChassisTransform(chassisPos, chassisRot);
+                        glm::vec3 exitPos = chassisPos - chassisRot * glm::vec3(2.0f, 0.0f, 0.0f);
+                        characterController.SetPosition(exitPos);
+                    }
+                    scene.Registry.get<VehicleOccupant>(activeVehicleEntity).DriverEntity = entt::null;
+                }
+                insideVehicle = false;
+                activeVehicleEntity = entt::null;
+                scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
+                Log::Info("Exited vehicle");
             }
+        }
+        fWasPressed = fHeld;
 
-            glm::vec3 playerPos = characterController.GetPosition();
-            scene.Registry.get<Transform>(playerEntity).Position = playerPos;
-            followCamera.SetTarget(playerPos);
+        if (playMode) {
+            if (!insideVehicle) {
+                glm::vec3 wishDir(0.0f);
+                if (w) wishDir += followCamera.GetForwardXZ();
+                if (s) wishDir -= followCamera.GetForwardXZ();
+                if (d) wishDir += followCamera.GetRightXZ();
+                if (a) wishDir -= followCamera.GetRightXZ();
 
-            {
-                glm::vec3 rayOrigin = followCamera.GetTarget();
-                glm::vec3 toCamera = followCamera.Position - rayOrigin;
-                float desiredDistance = glm::length(toCamera);
-                if (desiredDistance > 0.001f) {
-                    glm::vec3 rayDir = toCamera / desiredDistance;
-                    glm::vec3 hitPoint;
-                    if (physicsWorld.RaycastClosest(rayOrigin, rayDir, desiredDistance, hitPoint)) {
-                        constexpr float kCameraCollisionBuffer = 0.2f;
-                        followCamera.Position = hitPoint - rayDir * kCameraCollisionBuffer;
+                if (glm::length(wishDir) > 0.001f) {
+                    glm::vec3 facingDir = glm::normalize(wishDir);
+                    float targetYaw = std::atan2(facingDir.x, facingDir.z);
+                    glm::quat targetRotation = glm::angleAxis(targetYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+
+                    glm::quat& currentRotation = scene.Registry.get<Transform>(playerEntity).Rotation;
+                    constexpr float kTurnSpeed = 12.0f;
+                    currentRotation = glm::slerp(currentRotation, targetRotation, glm::min(kTurnSpeed * deltaTime, 1.0f));
+                }
+
+                bool spaceHeld = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+                bool jumpEdge = spaceHeld && !spaceWasPressed;
+                spaceWasPressed = spaceHeld;
+
+                characterController.Sprinting = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+                characterController.Update(deltaTime, wishDir, jumpEdge);
+
+                PlayerAnimState desiredAnimState = PlayerAnimState::Idle;
+                if (glm::length(wishDir) > 0.001f) {
+                    desiredAnimState = characterController.Sprinting ? PlayerAnimState::Run : PlayerAnimState::Walk;
+                }
+                if (desiredAnimState != currentPlayerAnimState) {
+                    currentPlayerAnimState = desiredAnimState;
+                    switch (currentPlayerAnimState) {
+                        case PlayerAnimState::Idle: playerAnimator.PlayAnimation(playerIdleAnim); break;
+                        case PlayerAnimState::Walk: playerAnimator.PlayAnimation(playerWalkAnim); break;
+                        case PlayerAnimState::Run:  playerAnimator.PlayAnimation(playerRunAnim);  break;
+                    }
+                }
+
+                glm::vec3 playerPos = characterController.GetPosition();
+                scene.Registry.get<Transform>(playerEntity).Position = playerPos;
+                followCamera.SetTarget(playerPos);
+
+                {
+                    glm::vec3 rayOrigin = followCamera.GetTarget();
+                    glm::vec3 toCamera = followCamera.Position - rayOrigin;
+                    float desiredDistance = glm::length(toCamera);
+                    if (desiredDistance > 0.001f) {
+                        glm::vec3 rayDir = toCamera / desiredDistance;
+                        glm::vec3 hitPoint;
+                        if (physicsWorld.RaycastClosest(rayOrigin, rayDir, desiredDistance, hitPoint)) {
+                            constexpr float kCameraCollisionBuffer = 0.2f;
+                            followCamera.Position = hitPoint - rayDir * kCameraCollisionBuffer;
+                        }
+                    }
+                }
+
+                viewerPosition = playerPos;
+            } else {
+                float throttle = 0.0f;
+                if (w) throttle += 1.0f;
+                if (s) throttle -= 1.0f;
+
+                float steer = 0.0f;
+                if (d) steer += 1.0f;
+                if (a) steer -= 1.0f;
+
+                bool handbrake = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+
+                if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity)) {
+                    auto& vehicleComp = scene.Registry.get<VehicleComponent>(activeVehicleEntity);
+                    if (vehicleComp.Controller) {
+                        vehicleComp.Controller->Update(deltaTime, throttle, 0.0f, steer, handbrake);
+
+                        glm::vec3 chassisPos;
+                        glm::quat chassisRot;
+                        vehicleComp.Controller->GetChassisTransform(chassisPos, chassisRot);
+                        scene.Registry.get<Transform>(activeVehicleEntity).Position = chassisPos;
+                        scene.Registry.get<Transform>(activeVehicleEntity).Rotation = chassisRot;
+
+                        vehicleCamera.SetTarget(chassisPos, chassisRot, vehicleComp.Controller->GetSpeedKmh(), deltaTime);
+
+                        glm::vec3 rayOrigin = chassisPos + glm::vec3(0.0f, 2.0f, 0.0f);
+                        glm::vec3 toCamera = vehicleCamera.Position - rayOrigin;
+                        float desiredDistance = glm::length(toCamera);
+                        if (desiredDistance > 0.001f) {
+                            glm::vec3 rayDir = toCamera / desiredDistance;
+                            glm::vec3 hitPoint;
+                            if (physicsWorld.RaycastClosest(rayOrigin, rayDir, desiredDistance, hitPoint)) {
+                                constexpr float kCameraCollisionBuffer = 0.2f;
+                                vehicleCamera.Position = hitPoint - rayDir * kCameraCollisionBuffer;
+                            }
+                        }
+
+                        viewerPosition = chassisPos;
                     }
                 }
             }
-
-            viewerPosition = playerPos;
         }
 
         float frameTime = playMode ? deltaTime : 0.0f;
@@ -643,9 +869,9 @@ int main() {
         glClearColor(0.35f, 0.35f, 0.38f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        const glm::mat4 activeView = playMode ? followCamera.GetViewMatrix() : camera.GetViewMatrix();
-        const glm::mat4 activeProjection = playMode ? followCamera.GetProjectionMatrix(aspectRatio) : camera.GetProjectionMatrix(aspectRatio);
-        const glm::vec3 activeCameraPos = playMode ? followCamera.Position : camera.Position;
+        const glm::mat4 activeView = playMode ? (insideVehicle ? vehicleCamera.GetViewMatrix() : followCamera.GetViewMatrix()) : camera.GetViewMatrix();
+        const glm::mat4 activeProjection = playMode ? (insideVehicle ? vehicleCamera.GetProjectionMatrix(aspectRatio) : followCamera.GetProjectionMatrix(aspectRatio)) : camera.GetProjectionMatrix(aspectRatio);
+        const glm::vec3 activeCameraPos = playMode ? (insideVehicle ? vehicleCamera.Position : followCamera.Position) : camera.Position;
         const glm::mat4 activeViewProjection = activeProjection * activeView;
 
         if (freezeCullingFrustum) {
@@ -712,7 +938,7 @@ int main() {
 
         // --- Profiled: chunk streaming --------------------------------------
         auto t_chunkUpdate = profileStart();
-        chunkManager.Update(viewerPosition, scene, physicsWorld);
+        chunkManager.Update(viewerPosition, scene, physicsWorld, maxRenderDistance);
         double ms_chunkUpdate = profileMs(t_chunkUpdate);
 
         // --- Profiled: rigid body transform sync ----------------------------
@@ -727,6 +953,32 @@ int main() {
 
             transform.Position = physicsWorld.GetBodyPosition(rigidBody.BodyId);
             transform.Rotation = physicsWorld.GetBodyRotation(rigidBody.BodyId);
+        }
+
+        // --- Sync vehicle wheel transforms ---------------------------------
+        auto vehicleView = scene.Registry.view<Transform, VehicleComponent>();
+        for (auto entity : vehicleView) {
+            auto& vehicleComp = vehicleView.get<VehicleComponent>(entity);
+            if (!vehicleComp.Controller) continue;
+
+            glm::vec3 chassisPos;
+            glm::quat chassisRot;
+            vehicleComp.Controller->GetChassisTransform(chassisPos, chassisRot);
+            auto& transform = vehicleView.get<Transform>(entity);
+            transform.Position = chassisPos;
+            transform.Rotation = chassisRot;
+
+            for (int i = 0; i < 4; ++i) {
+                entt::entity wheelEntity = vehicleComp.WheelEntities[i];
+                if (wheelEntity != entt::null && scene.Registry.valid(wheelEntity)) {
+                    glm::vec3 wheelPos;
+                    glm::quat wheelRot;
+                    vehicleComp.Controller->GetWheelTransform(i, wheelPos, wheelRot);
+                    auto& wheelTransform = scene.Registry.get<Transform>(wheelEntity);
+                    wheelTransform.Position = wheelPos;
+                    wheelTransform.Rotation = wheelRot;
+                }
+            }
         }
         double ms_rigidBodySync = profileMs(t_rigidBodySync);
 
@@ -763,11 +1015,29 @@ int main() {
         static std::unordered_map<InstanceGroupKey, std::vector<glm::mat4>, InstanceGroupKeyHash> instanceGroups;
         instanceGroups.clear();
 
-        // Query only entities near the camera instead of iterating the
-        // entire registry — this is what makes maxRenderDistance actually
-        // reduce per-frame CPU cost, rather than just skipping the draw
-        // call after still paying for the world-matrix/culling math on
-        // every entity in the scene regardless of distance.
+        // Precompute which entities belong to the active vehicle (chassis +
+        // wheels) so the culling loop below can check membership with a
+        // simple set lookup instead of scanning per entity.
+        std::unordered_set<entt::entity> debugVehicleEntities;
+        if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity)) {
+            debugVehicleEntities.insert(activeVehicleEntity);
+            if (scene.Registry.all_of<VehicleComponent>(activeVehicleEntity)) {
+                auto& vc = scene.Registry.get<VehicleComponent>(activeVehicleEntity);
+                for (auto wheelEnt : vc.WheelEntities) {
+                    if (wheelEnt != entt::null) {
+                        debugVehicleEntities.insert(wheelEnt);
+                    }
+                }
+            }
+        }
+
+        // Reset per-frame debug counters/state (only meaningful when a
+        // vehicle is actually active — stays at defaults otherwise).
+        debugVisibleWheelCount = 0;
+
+        const glm::mat4 invActiveViewForDebug = glm::inverse(activeView);
+        const glm::vec3 viewForwardForDebug = glm::normalize(glm::vec3(invActiveViewForDebug * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+
         const auto nearbyEntities = spatialGrid.QueryRadius(frozenCameraPosition, maxRenderDistance);
 
         for (entt::entity entity : nearbyEntities) {
@@ -797,7 +1067,32 @@ int main() {
 
             const float distanceToCamera = glm::length(worldCenter - frozenCameraPosition);
             const bool withinDistance = distanceToCamera <= (maxRenderDistance + worldRadius);
-            const bool insideFrustum = cullingFrustum.IntersectsSphere(worldCenter, worldRadius);
+            constexpr float kFrustumCullingMargin = 0.5f;
+            const bool insideFrustum = cullingFrustum.IntersectsSphere(worldCenter, worldRadius + kFrustumCullingMargin);
+
+            // --- Debug capture: log the vehicle chassis and its wheels only ---
+            if (debugVehicleEntities.contains(entity)) {
+                // Depth along the camera's actual view direction — this is
+                // what the projection's near/far planes actually clip
+                // against, as opposed to straight-line distance.
+                const glm::vec3 toObject = worldCenter - frozenCameraPosition;
+                const float depthAlongView = glm::dot(toObject, viewForwardForDebug);
+
+                if (entity == activeVehicleEntity) {
+                    debugVehicleDistance = distanceToCamera;
+                    debugVehicleRadius = worldRadius;
+                    debugVehicleDepth = depthAlongView;
+                    debugVehicleWithinDistance = withinDistance;
+                    debugVehicleInsideFrustum = insideFrustum;
+                }
+
+                if (!withinDistance || !insideFrustum) {
+                    Log::Info("[CullDebug] entity {} CULLED — dist={:.2f} radius={:.2f} depth={:.2f} withinDist={} insideFrustum={}",
+                        static_cast<uint32_t>(entity), distanceToCamera, worldRadius, depthAlongView, withinDistance, insideFrustum);
+                } else {
+                    ++debugVisibleWheelCount;
+                }
+            }
 
             if (!withinDistance || !insideFrustum) {
                 ++culledEntityCount;
@@ -912,6 +1207,31 @@ int main() {
         editorUI.DrawInspector(scene);
         editorUI.DrawAssetBrowser(scene);
         editorUI.DrawPhysicsPanel(scene, physicsWorld);
+
+        VehicleController* activeVehiclePtr = nullptr;
+        if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity) && scene.Registry.all_of<VehicleComponent>(activeVehicleEntity)) {
+            activeVehiclePtr = scene.Registry.get<VehicleComponent>(activeVehicleEntity).Controller.get();
+        } else {
+            auto vView = scene.Registry.view<VehicleComponent>();
+            if (!vView.empty()) {
+                activeVehiclePtr = vView.get<VehicleComponent>(*vView.begin()).Controller.get();
+            }
+        }
+
+        const bool spawnVehicleRequested = editorUI.DrawVehiclePanel(scene, physicsWorld, activeVehiclePtr, viewerPosition);
+        if (spawnVehicleRequested) {
+            if (insideVehicle) {
+                scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
+                insideVehicle = false;
+            }
+            activeVehicleEntity = entt::null;
+
+            DestroyAllVehicles();
+
+            const glm::vec3 playerPos = scene.Registry.get<Transform>(playerEntity).Position;
+            activeVehicleEntity = SpawnTestVehicle(scene, physicsWorld, playerPos + glm::vec3(3.0f, 2.0f, 0.0f));
+        }
+
         editorUI.DrawGizmoToolbar();
         editorUI.DrawTransformGizmo(scene, physicsWorld, camera, aspectRatio);
 
@@ -925,15 +1245,18 @@ int main() {
             if (playMode) {
                 characterController.SetPosition(kPlayerSpawnPosition);
                 scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
-                chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld);
+                chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld, maxRenderDistance);
             } else {
-                currentPlayerAnimState = PlayerAnimState::Idle;
-                playerAnimator.PlayAnimation(playerIdleAnim);
+                ResetToInitialState();
             }
         }
 
         editorUI.DrawViewportSettings(camera, gridRenderer);
         editorUI.DrawCullingPanel(freezeCullingFrustum, maxRenderDistance, renderedEntityCount, culledEntityCount);
+        editorUI.DrawCullingDebugOverlay(camera.GetYaw(), camera.GetPitch(), debugVehicleDepth,
+                                  debugVehicleDistance, debugVehicleRadius,
+                                  debugVehicleWithinDistance, debugVehicleInsideFrustum,
+                                  debugVisibleWheelCount);
         editorUI.DrawStatsOverlay();
         editorUI.Render();
 

@@ -6,6 +6,7 @@
 #include "../scene/SceneLoader.h"
 #include "../physics/PhysicsWorld.h"
 #include "../physics/CharacterController.h"
+#include "../physics/VehicleController.h"
 #include "../rendering/Primitives.h"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -716,6 +717,7 @@ void EditorUI::DrawMenuBar() {
             ImGui::MenuItem("Inspector", nullptr, &ShowInspector);
             ImGui::MenuItem("Asset Browser", nullptr, &ShowAssetBrowser);
             ImGui::MenuItem("Physics Test", nullptr, &ShowPhysicsPanel);
+            ImGui::MenuItem("Vehicle Test", nullptr, &ShowVehiclePanel);
             ImGui::MenuItem("Player", nullptr, &ShowPlayerPanel);
             ImGui::MenuItem("Viewport Settings", nullptr, &ShowViewportSettings);
             ImGui::MenuItem("Gizmo Toolbar", nullptr, &ShowGizmoToolbar);
@@ -1167,6 +1169,60 @@ void EditorUI::DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld) {
     ImGui::End();
 }
 
+bool EditorUI::DrawVehiclePanel(Scene& scene, PhysicsWorld& physicsWorld, VehicleController* activeVehicle, const glm::vec3& spawnPos) {
+    if (!ShowVehiclePanel) return false;
+    ImGui::Begin("Vehicle Test", &ShowVehiclePanel);
+
+    bool spawnRequested = false;
+    if (ImGui::Button("Spawn Vehicle")) {
+        spawnRequested = true;
+    }
+    ImGui::TextDisabled("Spawns just beside your current position");
+    ImGui::Separator();
+
+    if (activeVehicle != nullptr) {
+        ImGui::Text("Speed: %.1f km/h", activeVehicle->GetSpeedKmh());
+        ImGui::Text("Engine RPM: %.0f", activeVehicle->GetRPM());
+        ImGui::Text("Gear: %d", activeVehicle->GetTransmissionGear());
+
+        ImGui::Separator();
+        ImGui::Text("Tuning Parameters (Live)");
+
+        float torque = activeVehicle->GetEngineTorque();
+        if (ImGui::SliderFloat("Engine Torque", &torque, 100.0f, 2000.0f, "%.0f Nm")) {
+            activeVehicle->SetEngineTorque(torque);
+        }
+
+        float freq = activeVehicle->GetSuspensionFrequency();
+        float damp = activeVehicle->GetSuspensionDamping();
+        if (ImGui::SliderFloat("Suspension Frequency", &freq, 0.5f, 5.0f, "%.2f Hz")) {
+            activeVehicle->SetSuspensionParameters(freq, damp);
+        }
+        if (ImGui::SliderFloat("Suspension Damping", &damp, 0.1f, 2.0f, "%.2f")) {
+            activeVehicle->SetSuspensionParameters(freq, damp);
+        }
+
+        float friction = activeVehicle->GetTireFriction();
+        if (ImGui::SliderFloat("Tire Friction", &friction, 0.5f, 4.0f, "%.2f")) {
+            activeVehicle->SetTireFriction(friction);
+        }
+
+        float steer = activeVehicle->GetMaxSteerAngleDegrees();
+        if (ImGui::SliderFloat("Max Steer Angle", &steer, 15.0f, 50.0f, "%.1f deg")) {
+            activeVehicle->SetMaxSteerAngleDegrees(steer);
+        }
+    } else {
+        ImGui::TextDisabled("No vehicle active. Enter play mode or spawn vehicle.");
+    }
+
+    ImGui::Separator();
+    ImGui::Text("Vehicle Controls:");
+    ImGui::TextWrapped("Walk up to vehicle and press 'F' to enter/exit. Accelerate/Reverse: W/S, Steer: A/D, Handbrake: Space.");
+
+    ImGui::End();
+    return spawnRequested;
+}
+
 void EditorUI::DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer) {
     if (!ShowViewportSettings) return;
     ImGui::Begin("Viewport Settings", &ShowViewportSettings);
@@ -1235,7 +1291,23 @@ void EditorUI::DrawCullingPanel(bool& freezeCullingFrustum, float& maxRenderDist
     ImGui::End();
 }
 
-
+void EditorUI::DrawCullingDebugOverlay(float cameraYaw, float cameraPitch, float cameraDepthToVehicle,
+                                        float vehicleDistance, float vehicleRadius, bool vehicleWithinDistance,
+                                        bool vehicleInsideFrustum, int visibleWheelCount) {
+    ImGui::SetNextWindowBgAlpha(0.85f);
+    ImGui::SetNextWindowPos(ImVec2(20.0f, 400.0f), ImGuiCond_FirstUseEver);
+    ImGui::Begin("##CullingDebug", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::Text("Camera Yaw: %.1f  Pitch: %.1f", cameraYaw, cameraPitch);
+    ImGui::Separator();
+    ImGui::Text("Vehicle distance: %.2f  radius: %.2f", vehicleDistance, vehicleRadius);
+    ImGui::Text("Depth along view: %.2f", cameraDepthToVehicle);
+    ImGui::TextColored(vehicleWithinDistance ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1),
+                        "withinDistance: %s", vehicleWithinDistance ? "true" : "FALSE");
+    ImGui::TextColored(vehicleInsideFrustum ? ImVec4(0,1,0,1) : ImVec4(1,0,0,1),
+                        "insideFrustum: %s", vehicleInsideFrustum ? "true" : "FALSE");
+    ImGui::Text("Visible wheels: %d / 4", visibleWheelCount);
+    ImGui::End();
+}
 // --- Gizmo / selection -------------------------------------------------
 
 void EditorUI::DrawGizmoToolbar() {
@@ -1348,6 +1420,27 @@ void EditorUI::DrawTransformGizmo(Scene& scene, PhysicsWorld& physicsWorld, cons
                 const JPH::Quat physicsRotation(transform.Rotation.x, transform.Rotation.y, transform.Rotation.z, transform.Rotation.w);
                 physicsWorld.GetBodyInterface().SetPositionAndRotation(
                     rigidBody.BodyId, physicsPosition, physicsRotation, JPH::EActivation::Activate);
+            }
+        }
+
+        // Vehicles use VehicleComponent (a chassis body owned internally by
+        // VehicleController), not RigidBody — so the block above never
+        // fires for them. Without this, main.cpp's per-frame chassis sync
+        // (transform.Position = vehicleComp.Controller->GetChassisTransform(...))
+        // would immediately snap the vehicle right back to wherever Jolt's
+        // chassis body actually is, making the gizmo look like it does
+        // nothing — it moves the Transform for one frame, then the very
+        // next frame's vehicle sync overwrites it right back.
+        if (scene.Registry.all_of<VehicleComponent>(SelectedEntity)) {
+            auto& vehicleComp = scene.Registry.get<VehicleComponent>(SelectedEntity);
+            if (vehicleComp.Controller) {
+                const JPH::BodyID chassisBodyId = vehicleComp.Controller->GetBodyID();
+                if (!chassisBodyId.IsInvalid()) {
+                    const JPH::RVec3 physicsPosition(transform.Position.x, transform.Position.y, transform.Position.z);
+                    const JPH::Quat physicsRotation(transform.Rotation.x, transform.Rotation.y, transform.Rotation.z, transform.Rotation.w);
+                    physicsWorld.GetBodyInterface().SetPositionAndRotation(
+                        chassisBodyId, physicsPosition, physicsRotation, JPH::EActivation::Activate);
+                }
             }
         }
     }

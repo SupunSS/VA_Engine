@@ -136,4 +136,234 @@ std::shared_ptr<Model> CreatePyramid(float baseHalfWidth, float height) {
     return std::make_shared<Model>(std::move(meshes), boundsMin, boundsMax);
 }
 
+std::shared_ptr<Model> CreateWheel(float radius, float width, int segments) {
+    std::vector<Vertex> vertices;
+    std::vector<unsigned int> indices;
+
+    const float halfWidth = width * 0.5f;
+
+    // 1. Mantle (Cylinder outer surface)
+    for (int i = 0; i <= segments; ++i) {
+        float angle = (static_cast<float>(i) / static_cast<float>(segments)) * glm::two_pi<float>();
+        float cosA = std::cos(angle);
+        float sinA = std::sin(angle);
+
+        glm::vec3 normal(0.0f, cosA, sinA); // Radial normal out from X-axis
+        glm::vec3 tangent(1.0f, 0.0f, 0.0f); // Tangent along X-axis
+
+        // Left rim vertex (-halfWidth)
+        Vertex vLeft;
+        vLeft.Position = glm::vec3(-halfWidth, radius * cosA, radius * sinA);
+        vLeft.Normal = normal;
+        vLeft.Tangent = tangent;
+        vLeft.TexCoord = glm::vec2(static_cast<float>(i) / segments, 0.0f);
+
+        // Right rim vertex (+halfWidth)
+        Vertex vRight;
+        vRight.Position = glm::vec3(halfWidth, radius * cosA, radius * sinA);
+        vRight.Normal = normal;
+        vRight.Tangent = tangent;
+        vRight.TexCoord = glm::vec2(static_cast<float>(i) / segments, 1.0f);
+
+        vertices.push_back(vLeft);
+        vertices.push_back(vRight);
+    }
+
+    for (int i = 0; i < segments; ++i) {
+        unsigned int baseIdx = i * 2;
+        indices.push_back(baseIdx);
+        indices.push_back(baseIdx + 1);
+        indices.push_back(baseIdx + 2);
+
+        indices.push_back(baseIdx + 1);
+        indices.push_back(baseIdx + 3);
+        indices.push_back(baseIdx + 2);
+    }
+
+    // 2. Caps (Left Cap: x = -halfWidth, Normal = -X; Right Cap: x = +halfWidth, Normal = +X)
+    auto addCap = [&](float xPos, const glm::vec3& normal, bool counterClockwise) {
+        unsigned int centerIdx = static_cast<unsigned int>(vertices.size());
+        Vertex vCenter;
+        vCenter.Position = glm::vec3(xPos, 0.0f, 0.0f);
+        vCenter.Normal = normal;
+        vCenter.Tangent = glm::vec3(0.0f, 1.0f, 0.0f);
+        vCenter.TexCoord = glm::vec2(0.5f, 0.5f);
+        vertices.push_back(vCenter);
+
+        unsigned int ringStart = static_cast<unsigned int>(vertices.size());
+        for (int i = 0; i < segments; ++i) {
+            float angle = (static_cast<float>(i) / static_cast<float>(segments)) * glm::two_pi<float>();
+            float cosA = std::cos(angle);
+            float sinA = std::sin(angle);
+
+            Vertex vRim;
+            vRim.Position = glm::vec3(xPos, radius * cosA, radius * sinA);
+            vRim.Normal = normal;
+            vRim.Tangent = glm::vec3(0.0f, 1.0f, 0.0f);
+            vRim.TexCoord = glm::vec2(0.5f + 0.5f * cosA, 0.5f + 0.5f * sinA);
+            vertices.push_back(vRim);
+        }
+
+        for (int i = 0; i < segments; ++i) {
+            unsigned int current = ringStart + i;
+            unsigned int next = ringStart + ((i + 1) % segments);
+            if (counterClockwise) {
+                indices.push_back(centerIdx);
+                indices.push_back(next);
+                indices.push_back(current);
+            } else {
+                indices.push_back(centerIdx);
+                indices.push_back(current);
+                indices.push_back(next);
+            }
+        }
+    };
+
+    addCap(-halfWidth, glm::vec3(-1.0f, 0.0f, 0.0f), false);
+    addCap(halfWidth, glm::vec3(1.0f, 0.0f, 0.0f), true);
+
+    std::vector<std::unique_ptr<Mesh>> meshes;
+    meshes.push_back(std::make_unique<Mesh>(vertices, indices));
+
+    const glm::vec3 boundsMin(-halfWidth, -radius, -radius);
+    const glm::vec3 boundsMax(halfWidth, radius, radius);
+
+    return std::make_shared<Model>(std::move(meshes), boundsMin, boundsMax);
+}
+
+std::shared_ptr<Model> CreateBox(float halfX, float halfY, float halfZ) {
+    std::vector<Vertex> vertices;
+    std::vector<unsigned int> indices;
+
+    // Helper: add a flat-shaded quad as 2 triangles.
+    // a,b,c,d are the 4 corners in CCW winding when viewed from outside.
+    auto addFace = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d) {
+        glm::vec3 normal = glm::normalize(glm::cross(b - a, c - a));
+        glm::vec3 tangent = glm::normalize(b - a);
+        auto makeV = [&](glm::vec3 p, glm::vec2 uv) {
+            Vertex v; v.Position = p; v.Normal = normal;
+            v.Tangent = tangent; v.TexCoord = uv;
+            return v;
+        };
+        unsigned int base = static_cast<unsigned int>(vertices.size());
+        vertices.push_back(makeV(a, {0,0}));
+        vertices.push_back(makeV(b, {1,0}));
+        vertices.push_back(makeV(c, {1,1}));
+        vertices.push_back(makeV(d, {0,1}));
+        indices.insert(indices.end(), {base,base+1,base+2, base,base+2,base+3});
+    };
+
+    // +Z face (front)
+    addFace({-halfX,-halfY, halfZ},{halfX,-halfY, halfZ},{halfX, halfY, halfZ},{-halfX, halfY, halfZ});
+    // -Z face (back)
+    addFace({ halfX,-halfY,-halfZ},{-halfX,-halfY,-halfZ},{-halfX, halfY,-halfZ},{ halfX, halfY,-halfZ});
+    // +Y face (top)
+    addFace({-halfX, halfY, halfZ},{halfX, halfY, halfZ},{halfX, halfY,-halfZ},{-halfX, halfY,-halfZ});
+    // -Y face (bottom)
+    addFace({-halfX,-halfY,-halfZ},{halfX,-halfY,-halfZ},{halfX,-halfY, halfZ},{-halfX,-halfY, halfZ});
+    // +X face (right)
+    addFace({ halfX,-halfY, halfZ},{ halfX,-halfY,-halfZ},{ halfX, halfY,-halfZ},{ halfX, halfY, halfZ});
+    // -X face (left)
+    addFace({-halfX,-halfY,-halfZ},{-halfX,-halfY, halfZ},{-halfX, halfY, halfZ},{-halfX, halfY,-halfZ});
+
+    std::vector<std::unique_ptr<Mesh>> meshes;
+    meshes.push_back(std::make_unique<Mesh>(vertices, indices));
+    return std::make_shared<Model>(std::move(meshes),
+        glm::vec3(-halfX,-halfY,-halfZ), glm::vec3(halfX,halfY,halfZ));
+}
+
+std::shared_ptr<Model> CreateVehicleBody(float halfX, float halfY, float halfZ,
+                                          float cabinHeightFraction) {
+    // Low-poly car body = lower body slab + raised cabin block.
+    //
+    // Lower body occupies the full half-extents.
+    // Cabin sits on top of the lower body, inset on X and Z, and rises
+    // cabinHeightFraction * halfY above the lower body's top.
+    //
+    // All geometry is flat-shaded (each quad gets its own verts) so that
+    // the hard edges between panels read clearly as a stylized low-poly look.
+
+    std::vector<Vertex> vertices;
+    std::vector<unsigned int> indices;
+
+    auto addFace = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d) {
+        glm::vec3 normal = glm::normalize(glm::cross(b - a, c - a));
+        glm::vec3 tangent = glm::normalize(b - a);
+        auto makeV = [&](glm::vec3 p, glm::vec2 uv) {
+            Vertex v; v.Position = p; v.Normal = normal;
+            v.Tangent = tangent; v.TexCoord = uv;
+            return v;
+        };
+        unsigned int base = static_cast<unsigned int>(vertices.size());
+        vertices.push_back(makeV(a, {0,0}));
+        vertices.push_back(makeV(b, {1,0}));
+        vertices.push_back(makeV(c, {1,1}));
+        vertices.push_back(makeV(d, {0,1}));
+        indices.insert(indices.end(), {base,base+1,base+2, base,base+2,base+3});
+    };
+
+    // --- Lower body (full bounding box, -halfY to +halfY) ---
+    const float bY0 = -halfY;
+    const float bY1 =  halfY;
+    // Front (+Z)
+    addFace({-halfX,bY0, halfZ},{halfX,bY0, halfZ},{halfX,bY1, halfZ},{-halfX,bY1, halfZ});
+    // Back (-Z)
+    addFace({ halfX,bY0,-halfZ},{-halfX,bY0,-halfZ},{-halfX,bY1,-halfZ},{ halfX,bY1,-halfZ});
+    // Right (+X)
+    addFace({ halfX,bY0, halfZ},{ halfX,bY0,-halfZ},{ halfX,bY1,-halfZ},{ halfX,bY1, halfZ});
+    // Left (-X)
+    addFace({-halfX,bY0,-halfZ},{-halfX,bY0, halfZ},{-halfX,bY1, halfZ},{-halfX,bY1,-halfZ});
+    // Bottom (-Y)
+    addFace({-halfX,bY0,-halfZ},{halfX,bY0,-halfZ},{halfX,bY0, halfZ},{-halfX,bY0, halfZ});
+
+    // --- Cabin (inset, sits on top of lower body) ---
+    const float cabinInsetX = halfX * 0.65f;
+    const float cabinInsetZFront = halfZ * 0.25f;  // cabin ends before front bumper
+    const float cabinInsetZBack  = halfZ * 0.30f;  // cabin ends before rear
+    const float cabinY0 = halfY;
+    const float cabinY1 = halfY + halfY * cabinHeightFraction;
+    const float cX0 = -cabinInsetX, cX1 = cabinInsetX;
+    const float cZ0 = -halfZ + cabinInsetZBack;
+    const float cZ1 =  halfZ - cabinInsetZFront;
+
+    // Cabin top
+    addFace({cX0,cabinY1,cZ1},{cX1,cabinY1,cZ1},{cX1,cabinY1,cZ0},{cX0,cabinY1,cZ0});
+    // Cabin front
+    addFace({cX0,cabinY0,cZ1},{cX1,cabinY0,cZ1},{cX1,cabinY1,cZ1},{cX0,cabinY1,cZ1});
+    // Cabin back
+    addFace({cX1,cabinY0,cZ0},{cX0,cabinY0,cZ0},{cX0,cabinY1,cZ0},{cX1,cabinY1,cZ0});
+    // Cabin right
+    addFace({cX1,cabinY0,cZ1},{cX1,cabinY0,cZ0},{cX1,cabinY1,cZ0},{cX1,cabinY1,cZ1});
+    // Cabin left
+    addFace({cX0,cabinY0,cZ0},{cX0,cabinY0,cZ1},{cX0,cabinY1,cZ1},{cX0,cabinY1,cZ0});
+
+    // Lower body top — emitted as 3 pieces (front shoulder, rear shoulder, center strip
+    // behind/in-front-of cabin) so there are no gaps around the cabin footprint.
+    //
+    // These faces sit at the SAME Y as the cabin's own base (cabinY0 == bY1),
+    // which caused z-fighting/flickering depending on view angle — the GPU
+    // can't reliably decide which of two exactly-coplanar triangles is in
+    // front. Nudging these shoulder/gutter faces a hair below bY1 breaks
+    // the exact coplanarity without being visually noticeable (0.002 units
+    // is far smaller than anything else on this mesh).
+    constexpr float kShoulderYNudge = 0.02f;
+    const float shoulderY = bY1 - kShoulderYNudge;
+
+    // Front shoulder (between front bumper and cabin front)
+    addFace({-halfX,shoulderY, halfZ},{halfX,shoulderY, halfZ},{halfX,shoulderY,cZ1},{-halfX,shoulderY,cZ1});
+    // Rear shoulder
+    addFace({-halfX,shoulderY,cZ0},{halfX,shoulderY,cZ0},{halfX,shoulderY,-halfZ},{-halfX,shoulderY,-halfZ});
+    // Left gutter (between left side and cabin left)
+    addFace({-halfX,shoulderY,cZ1},{cX0,shoulderY,cZ1},{cX0,shoulderY,cZ0},{-halfX,shoulderY,cZ0});
+    // Right gutter
+    addFace({cX1,shoulderY,cZ1},{halfX,shoulderY,cZ1},{halfX,shoulderY,cZ0},{cX1,shoulderY,cZ0});
+
+    std::vector<std::unique_ptr<Mesh>> meshes;
+    meshes.push_back(std::make_unique<Mesh>(vertices, indices));
+
+    const glm::vec3 boundsMin(-halfX, -halfY, -halfZ);
+    const glm::vec3 boundsMax( halfX,  halfY + halfY * cabinHeightFraction, halfZ);
+    return std::make_shared<Model>(std::move(meshes), boundsMin, boundsMax);
+}
+
 } // namespace Primitives

@@ -42,6 +42,7 @@ public:
     void DrawInspector(Scene& scene);
     void DrawAssetBrowser(Scene& scene);
     void DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld);
+    bool DrawVehiclePanel(Scene& scene, PhysicsWorld& physicsWorld, class VehicleController* activeVehicle, const glm::vec3& spawnPos);
     void DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer);
     void DrawPlayerPanel(bool& playMode, CharacterController* controller);
 
@@ -51,6 +52,9 @@ public:
     // fly the free-fly camera outside the frozen frustum to visually verify
     // culling). renderedCount/culledCount are read-only stats for display.
     void DrawCullingPanel(bool& freezeCullingFrustum, float& maxRenderDistance, int renderedCount, int culledCount);
+    void DrawCullingDebugOverlay(float cameraYaw, float cameraPitch, float cameraDepthToVehicle,
+                              float vehicleDistance, float vehicleRadius, bool vehicleWithinDistance,
+                              bool vehicleInsideFrustum, int visibleWheelCount);
 
     // --- Gizmo / selection -------------------------------------------------
     void DrawGizmoToolbar();
@@ -69,6 +73,7 @@ public:
     bool ShowInspector = true;
     bool ShowAssetBrowser = true;
     bool ShowPhysicsPanel = true;
+    bool ShowVehiclePanel = true;
     bool ShowViewportSettings = true;
     bool ShowStatsOverlay = false;
     bool ShowPlayerPanel = true;

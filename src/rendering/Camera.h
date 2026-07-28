@@ -16,6 +16,17 @@ public:
     void SetMoveSpeed(float speed);
     void AdjustMoveSpeed(float delta); // relative change, used by ctrl+scroll
 
+    // Needed so main.cpp can capture the camera's starting look direction
+    // and restore it exactly when Play mode ends (Position alone isn't
+    // enough — yaw/pitch determine which way the camera is actually facing).
+    float GetYaw() const { return m_yaw; }
+    float GetPitch() const { return m_pitch; }
+    void SetYawPitch(float yaw, float pitch) {
+        m_yaw = yaw;
+        m_pitch = pitch;
+        UpdateVectors();
+    }
+
     glm::vec3 Position;
 
 private:

@@ -75,10 +75,39 @@ void Mesh::SetupMesh() {
     glBindVertexArray(0);
 }
 
+namespace {
+// Explicitly resets every material-related uniform to the "no material at
+// all" state. Used whenever a mesh has neither an override material nor
+// its own mesh->material, so the shader lands in a known state instead of
+// silently keeping whatever the PREVIOUS draw call in the frame left
+// behind — GLSL uniforms persist across draw calls until overwritten,
+// which previously caused un-materialed objects to intermittently inherit
+// an unrelated object's texture/tint depending on draw order.
+//
+// uUseCheckerFallback=1 is set ONLY here — this is the one case that
+// should show the missing-texture checkerboard. Material::Bind (a real
+// Material, even a tint-only one with no texture) always sets it to 0, so
+// a deliberately tinted-but-textureless material renders as a flat color
+// instead of being misread as "missing" by triangle.frag.
+void ResetMaterialUniformsToDefault(const Shader& shader) {
+    shader.SetInt("uUseCheckerFallback", 1);
+    shader.SetInt("uHasAlbedoMap", 0);
+    shader.SetInt("uHasNormalMap", 0);
+    shader.SetInt("uHasRoughnessMap", 0);
+    shader.SetInt("uHasMetallicMap", 0);
+    shader.SetVec3("uAlbedoTint", glm::vec3(1.0f));
+    shader.SetFloat("uRoughness", 0.5f);
+    shader.SetFloat("uMetallic", 0.0f);
+    shader.SetFloat("uNormalStrength", 1.0f);
+}
+}
+
 void Mesh::Draw(const Shader& shader, const Material* overrideMaterial) const {
     const Material* activeMaterial = overrideMaterial ? overrideMaterial : material.get();
     if (activeMaterial) {
         activeMaterial->Bind(shader);
+    } else {
+        ResetMaterialUniformsToDefault(shader);
     }
 
     glBindVertexArray(m_VAO);
@@ -95,6 +124,8 @@ void Mesh::DrawInstanced(const Shader& shader, const Material* overrideMaterial,
     const Material* activeMaterial = overrideMaterial ? overrideMaterial : material.get();
     if (activeMaterial) {
         activeMaterial->Bind(shader);
+    } else {
+        ResetMaterialUniformsToDefault(shader);
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, m_instanceVBO);
