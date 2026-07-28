@@ -1235,6 +1235,7 @@ void EditorUI::DrawCullingPanel(bool& freezeCullingFrustum, float& maxRenderDist
     ImGui::End();
 }
 
+
 // --- Gizmo / selection -------------------------------------------------
 
 void EditorUI::DrawGizmoToolbar() {
