@@ -56,6 +56,7 @@ add_executable(engine
     src/scene/CityLayout.cpp
     src/scene/PedestrianSystem.cpp
     src/scene/PedestrianSpawnSystem.cpp
+    src/editor/HUD.cpp
 )
 
 target_include_directories(engine PRIVATE

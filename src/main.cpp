@@ -42,6 +42,7 @@
 #include "scene/CityLayoutConfig.h"
 #include "scene/PedestrianSystem.h"
 #include "scene/PedestrianSpawnSystem.h"
+#include "editor/HUD.h"
 
 namespace {
 struct WindowUserData {
@@ -283,6 +284,7 @@ int main() {
 
     EditorUI editorUI;
     editorUI.Initialize(window);
+    HUD hud;
     Log::Info("OpenGL loaded: {}", (const char*)glGetString(GL_VERSION));
 
     int width, height;
@@ -329,6 +331,8 @@ int main() {
 
     auto playerEntity = scene.CreateEntity();
     scene.Registry.emplace<PlayerTag>(playerEntity);
+    scene.Registry.emplace<Health>(playerEntity);
+    scene.Registry.emplace<Ammo>(playerEntity);
     scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
 
     auto playerVisualEntity = scene.CreateEntity();
@@ -410,6 +414,7 @@ int main() {
     bool escWasPressed = false;
     bool deleteWasPressed = false;
     bool fWasPressed = false;
+    bool f5WasPressed = false; // F5: Play/Stop toggle shortcut (see loop below)
 
     // --- Temporary profiling instrumentation ----------------------------
     float profileLogTimer = 0.0f;
@@ -434,6 +439,12 @@ int main() {
         }
     };
 
+    // Fully rewinds the world back to how it looked when the engine
+    // started: destroys spawned vehicles and physics test bodies, resets
+    // the player/character controller/camera, and clears editor selection.
+    // This is now a deliberate, separate action — NOT an automatic
+    // side-effect of stopping play mode (see the F5/Esc/Shift+Esc handling
+    // and the "Full Reset" button below).
     auto ResetToInitialState = [&]() {
         if (insideVehicle) {
             scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
@@ -469,6 +480,30 @@ int main() {
         camera.SetYawPitch(kInitialCameraYaw, kInitialCameraPitch);
 
         editorUI.SelectedEntity = entt::null;
+    };
+
+    // Leaves play mode without touching any world state — vehicles,
+    // physics bodies, player position, etc. all stay exactly as they were.
+    // Used by F5 and plain Esc.
+    auto StopPlayModeKeepState = [&]() {
+        playMode = false;
+        SetCursorMode(window, GLFW_CURSOR_NORMAL, false);
+        mouseLookEnabled = false;
+        mouseLookNeedsReset = true;
+    };
+
+    // Enters play mode with the usual side effects (cursor lock, spawn
+    // position, streaming the chunks around the spawn point). Used by F5
+    // and by the panel's Play/Stop toggle.
+    auto StartPlayMode = [&]() {
+        playMode = true;
+        SetCursorMode(window, GLFW_CURSOR_DISABLED, true);
+        mouseLookEnabled = false;
+        mouseLookNeedsReset = true;
+
+        characterController.SetPosition(kPlayerSpawnPosition);
+        scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
+        chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld, maxRenderDistance);
     };
 
     WindowUserData userData{
@@ -678,14 +713,37 @@ int main() {
         bool a = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
         bool d = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
 
-        const bool escHeld = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
-        if (escHeld && !escWasPressed && playMode) {
-            playMode = false;
-            SetCursorMode(window, GLFW_CURSOR_NORMAL, false);
-            mouseLookEnabled = false;
-            mouseLookNeedsReset = true;
+        // --- Play/Stop shortcuts --------------------------------------------
+        // F5        : toggle Play <-> Stop. Stopping this way keeps the
+        //             world exactly as it is (no reset) — it's a quick
+        //             pause/resume, not a rewind.
+        // Esc       : Stop only (same "keep state" behavior as F5's stop).
+        // Shift+Esc : Stop AND fully reset the world back to how it looked
+        //             when the engine started. This is the old ESC
+        //             behavior, now opt-in via the modifier so a plain Esc
+        //             tap can't accidentally wipe your test state.
+        // A "Full Reset" button (drawn further down, near the other editor
+        // panels) performs the same full reset on demand, whether you're
+        // currently playing or already stopped.
+        const bool f5Held = glfwGetKey(window, GLFW_KEY_F5) == GLFW_PRESS;
+        if (f5Held && !f5WasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
+            if (playMode) {
+                StopPlayModeKeepState();
+            } else {
+                StartPlayMode();
+            }
+        }
+        f5WasPressed = f5Held;
 
-            ResetToInitialState();
+        const bool escHeld = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+        const bool shiftHeldForEsc = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+                                      glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+        if (escHeld && !escWasPressed && playMode) {
+            StopPlayModeKeepState();
+
+            if (shiftHeldForEsc) {
+                ResetToInitialState();
+            }
         }
         escWasPressed = escHeld;
 
@@ -771,6 +829,22 @@ int main() {
             }
         }
         fWasPressed = fHeld;
+
+        std::string interactionPromptText;
+        if (playMode) {
+            if (insideVehicle) {
+                interactionPromptText = "Press F to exit vehicle";
+            } else {
+                glm::vec3 playerPosForPrompt = characterController.GetPosition();
+                auto nearbyForPrompt = spatialGrid.QueryRadius(playerPosForPrompt, 4.0f);
+                for (auto ent : nearbyForPrompt) {
+                    if (scene.Registry.valid(ent) && scene.Registry.all_of<VehicleTag, VehicleComponent>(ent)) {
+                        interactionPromptText = "Press F to enter vehicle";
+                        break;
+                    }
+                }
+            }
+        }
 
         if (playMode) {
             if (!insideVehicle) {
@@ -1235,6 +1309,71 @@ int main() {
 
         // --- Editor UI: drawn last, directly onto the composited backbuffer -
         editorUI.BeginFrame();
+
+        if (playMode) {
+            hud.SetViewportSize(framebufferWidth, framebufferHeight);
+
+            std::vector<HUD::MinimapBlip> minimapBlips;
+            {
+                auto mmVehicleView = scene.Registry.view<Transform, VehicleComponent>();
+                for (auto ent : mmVehicleView) {
+                    auto& t = mmVehicleView.get<Transform>(ent);
+                    minimapBlips.push_back({ glm::vec2(t.Position.x, t.Position.z), HUD::MinimapBlip::BlipType::Vehicle });
+                }
+                auto mmPedView = scene.Registry.view<Transform, PedestrianTag>();
+                for (auto ent : mmPedView) {
+                    auto& t = mmPedView.get<Transform>(ent);
+                    minimapBlips.push_back({ glm::vec2(t.Position.x, t.Position.z), HUD::MinimapBlip::BlipType::Pedestrian });
+                }
+            }
+
+            const glm::vec3& hudPlayerPos = scene.Registry.get<Transform>(playerEntity).Position;
+            hud.DrawMinimap(glm::vec2(hudPlayerPos.x, hudPlayerPos.z), camera.GetYaw(), minimapBlips);
+
+            const auto& playerHealth = scene.Registry.get<Health>(playerEntity);
+            hud.DrawHealthBar(playerHealth.Current, playerHealth.Max);
+
+            const auto& playerAmmo = scene.Registry.get<Ammo>(playerEntity);
+            hud.DrawAmmoCounter(playerAmmo.Current, playerAmmo.Reserve);
+
+            float hudSpeedKmh = 0.0f, hudRpm = 0.0f;
+            int hudGear = 0;
+            if (insideVehicle && activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity)) {
+                auto& vc = scene.Registry.get<VehicleComponent>(activeVehicleEntity);
+                if (vc.Controller) {
+                    hudSpeedKmh = vc.Controller->GetSpeedKmh();
+                    hudRpm = vc.Controller->GetRPM();
+                    hudGear = vc.Controller->GetTransmissionGear();
+                }
+            }
+            hud.DrawSpeedometer(insideVehicle, hudSpeedKmh, hudRpm, hudGear);
+
+            hud.DrawInteractionPrompt(interactionPromptText);
+        }
+
+        // --- Play Controls panel ---------------------------------------
+        // Shows the keyboard shortcuts and hosts the "Full Reset" button —
+        // the one deliberate action that rewinds vehicles, physics test
+        // bodies, and the player/camera back to their starting state.
+        // Works whether play mode is currently on or off.
+        {
+            ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Play Controls");
+            ImGui::Text("Status: %s", playMode ? "Playing" : "Stopped");
+            ImGui::Separator();
+            ImGui::TextUnformatted("F5        : Play / Stop (keeps world state)");
+            ImGui::TextUnformatted("Esc       : Stop (keeps world state)");
+            ImGui::TextUnformatted("Shift+Esc : Stop + Full Reset");
+            ImGui::Separator();
+            if (ImGui::Button("Full Reset", ImVec2(120.0f, 0.0f))) {
+                if (playMode) {
+                    StopPlayModeKeepState();
+                }
+                ResetToInitialState();
+            }
+            ImGui::End();
+        }
+        
         editorUI.DrawMenuBar();
         editorUI.DrawSceneHierarchy(scene);
         editorUI.DrawInspector(scene);
@@ -1279,19 +1418,16 @@ int main() {
         editorUI.DrawGizmoToolbar();
         editorUI.DrawTransformGizmo(scene, physicsWorld, camera, aspectRatio);
 
+        // Play/Stop toggle button in the panel now behaves the same as
+        // F5/Esc: it only starts/stops play mode and does NOT reset the
+        // world. Use the "Full Reset" button above (or Shift+Esc) for that.
         bool playModeBeforePanel = playMode;
         editorUI.DrawPlayerPanel(playMode, &characterController);
         if (playMode != playModeBeforePanel) {
-            SetCursorMode(window, playMode ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL, true);
-            mouseLookEnabled = false;
-            mouseLookNeedsReset = true;
-
             if (playMode) {
-                characterController.SetPosition(kPlayerSpawnPosition);
-                scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
-                chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld, maxRenderDistance);
+                StartPlayMode();
             } else {
-                ResetToInitialState();
+                StopPlayModeKeepState();
             }
         }
 
