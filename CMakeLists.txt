@@ -52,6 +52,10 @@ add_executable(engine
     src/rendering/FrustumRenderer.cpp
     src/physics/VehicleController.cpp
     src/rendering/VehicleCamera.cpp
+    src/scene/CityLayoutConfig.cpp
+    src/scene/CityLayout.cpp
+    src/scene/PedestrianSystem.cpp
+    src/scene/PedestrianSpawnSystem.cpp
 )
 
 target_include_directories(engine PRIVATE

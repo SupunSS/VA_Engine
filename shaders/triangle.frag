@@ -7,6 +7,14 @@ in vec2 TexCoord;
 
 uniform sampler2D uAlbedoMap;
 uniform int uHasAlbedoMap;
+uniform int uUseCheckerFallback; // 1 only when the entity has NO Material at
+                                  // all (see Mesh::Draw's
+                                  // ResetMaterialUniformsToDefault) — a real
+                                  // tint-only Material (buildings, roads,
+                                  // wheels, etc.) sets this to 0 via
+                                  // Material::Bind, so it renders its
+                                  // intended flat color instead of being
+                                  // misread as "missing".
 uniform vec3 uAlbedoTint;
 uniform vec3 uViewPos;
 
@@ -24,22 +32,23 @@ void main() {
 
     if (uHasAlbedoMap == 1) {
         albedo *= texture(uAlbedoMap, TexCoord).rgb;
-    } else {
-        // No texture assigned — render the same pink/gray checkerboard
-        // convention used for failed texture loads (see Texture.cpp's
-        // GenerateCheckerboardFallback), computed procedurally here from UVs
-        // so "no material" and "missing texture" read as visually
-        // consistent, Unreal/Source-style, with zero extra texture cost.
+    } else if (uUseCheckerFallback == 1) {
+        // Genuinely no material assigned at all — same pink/gray
+        // checkerboard convention used for failed texture loads (see
+        // Texture.cpp's GenerateCheckerboardFallback), computed
+        // procedurally here from UVs so it reads as a clear "something is
+        // actually missing" signal, distinct from an intentional flat color.
         vec2 checkerCell = floor(TexCoord * 8.0);
         float checkerParity = mod(checkerCell.x + checkerCell.y, 2.0);
         vec3 checkerPink = vec3(1.0, 0.0, 0.78);
         vec3 checkerGray = vec3(0.35, 0.35, 0.35);
         albedo *= mix(checkerGray, checkerPink, checkerParity);
     }
+    // else: a real Material with no albedo map (e.g. procedural buildings,
+    // roads, sidewalks, vehicle chassis/wheels) — just use uAlbedoTint as
+    // a plain flat color, no checkerboard.
 
-    // ambient — was 0.15, dropped to 0.08: at 0.15 the whole scene read as
-    // uniformly lit regardless of surface angle, killing the contrast that
-    // makes shapes (building corners/edges) actually read as 3D.
+    // ambient
     vec3 ambient = 0.08 * albedo;
 
     // directional light (diffuse)

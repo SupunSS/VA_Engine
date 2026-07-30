@@ -7,6 +7,7 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
 #include "../rendering/Material.h" 
+#include <vector>
 
 // Every entity that exists in the world has this. Cheap by design —
 // static props (streetlights, trash cans) never touch anything beyond this.
@@ -24,6 +25,8 @@ struct Transform {
 
 class Model;    // forward declare from rendering
 class Texture;  // forward declare from rendering
+class Animator;      // forward declare from rendering
+class Animation;     // forward declare from rendering
 
 struct MeshRenderer {
     std::shared_ptr<Model> ModelRef;
@@ -85,4 +88,33 @@ struct RigidBody {
           Shape(shape),
           BoxHalfExtents(boxHalfExtents),
           SphereRadius(sphereRadius) {}
+};
+
+struct PedestrianTag {};
+ 
+// Drives a pedestrian's movement along a fixed waypoint loop (from
+// CityLayout::GetSidewalkLoopWaypoints). Deliberately simple for this
+// first stage — straight-line movement toward the next waypoint, no
+// physics body, no obstacle avoidance yet.
+struct PedestrianAI {
+    std::vector<glm::vec3> PathWaypoints;
+    int CurrentWaypointIndex = 0;
+    float MoveSpeed = 1.4f;   // m/s, roughly an average human walking pace
+    float WaitTimer = 0.0f;   // seconds remaining before departing the
+                               // current waypoint — pausing briefly at each
+                               // stop reads as far less robotic than
+                               // instant direction changes every waypoint
+};
+ 
+// Wraps a per-entity Animator + the idle/walk clips it switches between.
+// Every skinned entity that needs its own independent playback time (the
+// player already does this via a standalone Animator in main.cpp — this
+// component is the generalized, many-entities version of that same idea
+// for NPCs).
+struct AnimatorComponent {
+    std::shared_ptr<Animator> AnimatorPtr;
+    std::shared_ptr<Animation> IdleAnim;
+    std::shared_ptr<Animation> WalkAnim;
+ 
+    enum class State { Idle, Walk } CurrentState = State::Idle;
 };

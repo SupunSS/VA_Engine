@@ -39,6 +39,9 @@
 #include "rendering/Skybox.h"
 #include "rendering/Frustum.h"
 #include "rendering/FrustumRenderer.h"
+#include "scene/CityLayoutConfig.h"
+#include "scene/PedestrianSystem.h"
+#include "scene/PedestrianSpawnSystem.h"
 
 namespace {
 struct WindowUserData {
@@ -383,8 +386,15 @@ int main() {
     float frozenFrustumYaw = -90.0f;
     float frozenFrustumPitch = 0.0f;
     float maxRenderDistance = 300.0f;
+    float pedestrianSimulationDistance = 60.0f;
     int renderedEntityCount = 0;
     int culledEntityCount = 0;
+
+    PedestrianSpawnSystem::Config pedestrianSpawnConfig;
+    pedestrianSpawnConfig.TargetPopulation = 40;
+    pedestrianSpawnConfig.SpawnRadius = 40.0f;
+    pedestrianSpawnConfig.DespawnRadius = 70.0f;
+    pedestrianSpawnConfig.ChunkSize = 50.0f; // must match ChunkManager(50.0f, ...) above
 
     // --- Debug overlay state for the vehicle specifically ---
     float debugVehicleDistance = 0.0f;
@@ -614,6 +624,8 @@ int main() {
             userData->editorUI->QueueDroppedFiles(count, paths);
         }
     });
+
+    CityLayoutConfig::LoadFromFile("config/city_layout.json");
 
     chunkManager.Update(camera.Position, scene, physicsWorld, maxRenderDistance);
 
@@ -984,6 +996,8 @@ int main() {
 
         scriptEngine.CallUpdate(deltaTime);
         scriptEngine.CheckForReload(deltaTime);
+        PedestrianSystem::Update(scene, deltaTime, viewerPosition, pedestrianSimulationDistance);
+        PedestrianSpawnSystem::Update(scene, viewerPosition, deltaTime, pedestrianSpawnConfig);
 
         static float queryTimer = 0.0f;
         queryTimer += deltaTime;
@@ -1070,6 +1084,15 @@ int main() {
             constexpr float kFrustumCullingMargin = 0.5f;
             const bool insideFrustum = cullingFrustum.IntersectsSphere(worldCenter, worldRadius + kFrustumCullingMargin);
 
+             if (scene.Registry.all_of<PedestrianTag>(entity)) {
+                const glm::vec3 toViewer = worldCenter - frozenCameraPosition;
+                const float pedDistSq = toViewer.x * toViewer.x + toViewer.y * toViewer.y + toViewer.z * toViewer.z;
+                if (pedDistSq > pedestrianSimulationDistance * pedestrianSimulationDistance) {
+                    ++culledEntityCount;
+                    continue;
+                }
+            }
+
             // --- Debug capture: log the vehicle chassis and its wheels only ---
             if (debugVehicleEntities.contains(entity)) {
                 // Depth along the camera's actual view direction — this is
@@ -1106,6 +1129,16 @@ int main() {
                 renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
                 continue;
             }
+
+            if (scene.Registry.all_of<AnimatorComponent>(entity)) {
+    auto& animComp = scene.Registry.get<AnimatorComponent>(entity);
+    if (animComp.AnimatorPtr) {
+        triangleShader.SetMat4("uModel", worldMatrix);
+        triangleShader.SetMat4Array("uBoneMatrices", animComp.AnimatorPtr->GetFinalBoneMatrices());
+        renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
+    }
+    continue;
+}
 
             InstanceGroupKey key{ renderer.ModelRef.get(), renderer.MaterialRef.get() };
             instanceGroups[key].push_back(worldMatrix);
@@ -1218,19 +1251,30 @@ int main() {
             }
         }
 
-        const bool spawnVehicleRequested = editorUI.DrawVehiclePanel(scene, physicsWorld, activeVehiclePtr, viewerPosition);
-        if (spawnVehicleRequested) {
-            if (insideVehicle) {
-                scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
-                insideVehicle = false;
-            }
-            activeVehicleEntity = entt::null;
+        bool despawnVehicleRequested = false;
+        const bool spawnVehicleRequested = editorUI.DrawVehiclePanel(scene, physicsWorld, activeVehiclePtr, viewerPosition, despawnVehicleRequested);
 
-            DestroyAllVehicles();
+    if (spawnVehicleRequested) {
+    if (insideVehicle) {
+        scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
+        insideVehicle = false;
+    }
+    activeVehicleEntity = entt::null;
 
-            const glm::vec3 playerPos = scene.Registry.get<Transform>(playerEntity).Position;
-            activeVehicleEntity = SpawnTestVehicle(scene, physicsWorld, playerPos + glm::vec3(3.0f, 2.0f, 0.0f));
-        }
+    DestroyAllVehicles();
+
+    const glm::vec3 playerPos = scene.Registry.get<Transform>(playerEntity).Position;
+    glm::vec3 forwardFlat = camera.GetFront();
+    forwardFlat.y = 0.0f;
+    if (glm::length(forwardFlat) < 0.001f) forwardFlat = glm::vec3(0.0f, 0.0f, -1.0f);
+    forwardFlat = glm::normalize(forwardFlat);
+
+    constexpr float kSpawnDistance = 5.0f;
+    constexpr float kSpawnHeight = 3.0f;
+    const glm::vec3 spawnPos = playerPos + forwardFlat * kSpawnDistance + glm::vec3(0.0f, kSpawnHeight, 0.0f);
+
+    activeVehicleEntity = SpawnTestVehicle(scene, physicsWorld, spawnPos);
+}
 
         editorUI.DrawGizmoToolbar();
         editorUI.DrawTransformGizmo(scene, physicsWorld, camera, aspectRatio);

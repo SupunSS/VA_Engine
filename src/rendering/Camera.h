@@ -21,6 +21,7 @@ public:
     // enough — yaw/pitch determine which way the camera is actually facing).
     float GetYaw() const { return m_yaw; }
     float GetPitch() const { return m_pitch; }
+    glm::vec3 GetFront() const { return m_front; }
     void SetYawPitch(float yaw, float pitch) {
         m_yaw = yaw;
         m_pitch = pitch;

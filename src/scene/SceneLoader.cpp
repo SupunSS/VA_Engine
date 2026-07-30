@@ -8,18 +8,14 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <vector>
+#include "CityLayoutConfig.h"
+#include "CityLayout.h"
+#include "../rendering/Animator.h"
 
 std::unordered_map<std::string, std::shared_ptr<Model>> SceneLoader::s_modelCache;
 
 namespace {
-// Thickness of the per-chunk ground plate. Top surface sits at y = 0 to
-// match where CharacterController's spawn point and existing test bodies
-// already assume the ground is. Made generously thick (not just a thin
-// slab) as a safety margin against the one-frame lag between a respawn
-// and ChunkManager::Update picking up the new viewer position — if the
-// character falls a bit before the ground body registers, a thin slab
-// can let it fall clean through before ever touching it.
-constexpr float kGroundThickness = 10.0f;
+
 
 std::shared_ptr<Material> GetGroundMaterial() {
     static std::shared_ptr<Material> groundMaterial = [] {
@@ -30,16 +26,7 @@ std::shared_ptr<Material> GetGroundMaterial() {
     return groundMaterial;
 }
 
-// ---------------------------------------------------------------------------
-// Procedural city block generation. Each chunk is treated as one city
-// block: a road+sidewalk ring around the edge (lines up seamlessly with the
-// next chunk's ring, since every chunk uses the same margin), with a small
-// grid of block-out buildings filling the interior. Fully deterministic per
-// (chunkX, chunkZ) — reloading the same chunk always regenerates identical
-// geometry, so nothing drifts across an unload/reload cycle.
-// ---------------------------------------------------------------------------
-constexpr float kRoadWidth = 8.0f;
-constexpr float kSidewalkWidth = 2.0f;
+
 
 // Road/sidewalk surfaces are embedded slightly below y=0 and poke up just
 // slightly above it — guarantees no floating gap above the ground plate's
@@ -50,10 +37,6 @@ constexpr float kRoadBottomY = -0.15f;
 constexpr float kSidewalkTopY = 0.15f; // sits above the road like a real curb
 constexpr float kSidewalkBottomY = -0.15f;
 
-constexpr int   kBuildingGridSize = 2; // buildings per chunk edge (2x2 = 4 buildings/chunk)
-constexpr float kBuildingMargin = 1.0f; // gap between a building's footprint and its plot edge
-constexpr float kBuildingMinHeight = 6.0f;
-constexpr float kBuildingMaxHeight = 24.0f;
 
 uint32_t HashCoords(int x, int z, int salt) {
     uint32_t h = static_cast<uint32_t>(x) * 374761393u
@@ -132,6 +115,7 @@ void CreateSurfaceBox(Scene& scene, float centerX, float centerZ, float halfExte
 }
 
 void GenerateCityBlock(Scene& scene, PhysicsWorld& physicsWorld, int chunkX, int chunkZ, float chunkSize) {
+    const auto& config = CityLayoutConfig::Get();
     const float worldX0 = chunkX * chunkSize;
     const float worldZ0 = chunkZ * chunkSize;
     const float worldXCenter = worldX0 + chunkSize * 0.5f;
@@ -139,45 +123,45 @@ void GenerateCityBlock(Scene& scene, PhysicsWorld& physicsWorld, int chunkX, int
 
     // --- Road ring: 4 strips along the chunk edges. Corners double-cover —
     // harmless, same flat color, coplanar. ------------------------------
-    CreateSurfaceBox(scene, worldXCenter, worldZ0 + kRoadWidth * 0.5f,
-                      chunkSize * 0.5f, kRoadWidth * 0.5f, kRoadTopY, kRoadBottomY, GetRoadMaterial(), chunkX, chunkZ);
-    CreateSurfaceBox(scene, worldXCenter, worldZ0 + chunkSize - kRoadWidth * 0.5f,
-                      chunkSize * 0.5f, kRoadWidth * 0.5f, kRoadTopY, kRoadBottomY, GetRoadMaterial(), chunkX, chunkZ);
-    CreateSurfaceBox(scene, worldX0 + kRoadWidth * 0.5f, worldZCenter,
-                      kRoadWidth * 0.5f, chunkSize * 0.5f, kRoadTopY, kRoadBottomY, GetRoadMaterial(), chunkX, chunkZ);
-    CreateSurfaceBox(scene, worldX0 + chunkSize - kRoadWidth * 0.5f, worldZCenter,
-                      kRoadWidth * 0.5f, chunkSize * 0.5f, kRoadTopY, kRoadBottomY, GetRoadMaterial(), chunkX, chunkZ);
+    CreateSurfaceBox(scene, worldXCenter, worldZ0 + config.RoadWidth * 0.5f,
+                      chunkSize * 0.5f, config.RoadWidth * 0.5f, kRoadTopY, kRoadBottomY, GetRoadMaterial(), chunkX, chunkZ);
+    CreateSurfaceBox(scene, worldXCenter, worldZ0 + chunkSize - config.RoadWidth * 0.5f,
+                      chunkSize * 0.5f, config.RoadWidth * 0.5f, kRoadTopY, kRoadBottomY, GetRoadMaterial(), chunkX, chunkZ);
+    CreateSurfaceBox(scene, worldX0 + config.RoadWidth * 0.5f, worldZCenter,
+                      config.RoadWidth * 0.5f, chunkSize * 0.5f, kRoadTopY, kRoadBottomY, GetRoadMaterial(), chunkX, chunkZ);
+    CreateSurfaceBox(scene, worldX0 + chunkSize - config.RoadWidth * 0.5f, worldZCenter,
+                      config.RoadWidth * 0.5f, chunkSize * 0.5f, kRoadTopY, kRoadBottomY, GetRoadMaterial(), chunkX, chunkZ);
 
     // --- Sidewalk ring: just inside the road ring -----------------------
-    const float sidewalkInset = kRoadWidth;
+    const float sidewalkInset = config.RoadWidth;
     const float sidewalkSpan = chunkSize - 2.0f * sidewalkInset;
-    CreateSurfaceBox(scene, worldXCenter, worldZ0 + sidewalkInset + kSidewalkWidth * 0.5f,
-                      sidewalkSpan * 0.5f, kSidewalkWidth * 0.5f, kSidewalkTopY, kSidewalkBottomY, GetSidewalkMaterial(), chunkX, chunkZ);
-    CreateSurfaceBox(scene, worldXCenter, worldZ0 + chunkSize - sidewalkInset - kSidewalkWidth * 0.5f,
-                      sidewalkSpan * 0.5f, kSidewalkWidth * 0.5f, kSidewalkTopY, kSidewalkBottomY, GetSidewalkMaterial(), chunkX, chunkZ);
-    CreateSurfaceBox(scene, worldX0 + sidewalkInset + kSidewalkWidth * 0.5f, worldZCenter,
-                      kSidewalkWidth * 0.5f, sidewalkSpan * 0.5f, kSidewalkTopY, kSidewalkBottomY, GetSidewalkMaterial(), chunkX, chunkZ);
-    CreateSurfaceBox(scene, worldX0 + chunkSize - sidewalkInset - kSidewalkWidth * 0.5f, worldZCenter,
-                      kSidewalkWidth * 0.5f, sidewalkSpan * 0.5f, kSidewalkTopY, kSidewalkBottomY, GetSidewalkMaterial(), chunkX, chunkZ);
+    CreateSurfaceBox(scene, worldXCenter, worldZ0 + sidewalkInset + config.SidewalkWidth * 0.5f,
+                      sidewalkSpan * 0.5f, config.SidewalkWidth * 0.5f, kSidewalkTopY, kSidewalkBottomY, GetSidewalkMaterial(), chunkX, chunkZ);
+    CreateSurfaceBox(scene, worldXCenter, worldZ0 + chunkSize - sidewalkInset - config.SidewalkWidth * 0.5f,
+                      sidewalkSpan * 0.5f, config.SidewalkWidth * 0.5f, kSidewalkTopY, kSidewalkBottomY, GetSidewalkMaterial(), chunkX, chunkZ);
+    CreateSurfaceBox(scene, worldX0 + sidewalkInset + config.SidewalkWidth * 0.5f, worldZCenter,
+                      config.SidewalkWidth * 0.5f, sidewalkSpan * 0.5f, kSidewalkTopY, kSidewalkBottomY, GetSidewalkMaterial(), chunkX, chunkZ);
+    CreateSurfaceBox(scene, worldX0 + chunkSize - sidewalkInset - config.SidewalkWidth * 0.5f, worldZCenter,
+                      config.SidewalkWidth * 0.5f, sidewalkSpan * 0.5f, kSidewalkTopY, kSidewalkBottomY, GetSidewalkMaterial(), chunkX, chunkZ);
 
     // --- Buildings: block-out boxes, real physics colliders --------------
-    const float interiorMargin = kRoadWidth + kSidewalkWidth;
+    const float interiorMargin = config.RoadWidth + config.SidewalkWidth;
     const float interiorSpan = chunkSize - 2.0f * interiorMargin;
-    const float plotSize = interiorSpan / static_cast<float>(kBuildingGridSize);
+    const float plotSize = interiorSpan / static_cast<float>(config.BuildingGridSize);
 
-    for (int plotX = 0; plotX < kBuildingGridSize; ++plotX) {
-        for (int plotZ = 0; plotZ < kBuildingGridSize; ++plotZ) {
+    for (int plotX = 0; plotX < config.BuildingGridSize; ++plotX) {
+        for (int plotZ = 0; plotZ < config.BuildingGridSize; ++plotZ) {
             const float plotCenterX = worldX0 + interiorMargin + plotSize * (plotX + 0.5f);
             const float plotCenterZ = worldZ0 + interiorMargin + plotSize * (plotZ + 0.5f);
 
-            const float footprintHalf = (plotSize * 0.5f) - kBuildingMargin;
+            const float footprintHalf = (plotSize * 0.5f) - config.BuildingMargin;
             if (footprintHalf <= 0.5f) {
                 continue; // margins too large for this plot size — skip rather than produce a degenerate building
             }
 
             const int plotSeed = plotX * 1000 + plotZ;
             const float heightT = HashToUnitFloat(chunkX, chunkZ, plotSeed);
-            const float buildingHeight = kBuildingMinHeight + heightT * (kBuildingMaxHeight - kBuildingMinHeight);
+            const float buildingHeight = config.BuildingMinHeight + heightT * (config.BuildingMaxHeight - config.BuildingMinHeight);
             const uint32_t colorBucket = HashCoords(chunkX, chunkZ, plotSeed + 7919); // different salt so height/color don't correlate
 
             const glm::vec3 halfExtents(footprintHalf, buildingHeight * 0.5f, footprintHalf);
@@ -197,6 +181,52 @@ void GenerateCityBlock(Scene& scene, PhysicsWorld& physicsWorld, int chunkX, int
     }
 }
 } // namespace
+
+void SpawnPedestrians(Scene& scene, int chunkX, int chunkZ, float chunkSize) {
+    const auto& config = CityLayoutConfig::Get();
+    if (config.PedestriansPerChunk <= 0) {
+        return;
+    }
+
+    auto waypoints = CityLayout::GetSidewalkLoopWaypoints(chunkX, chunkZ, chunkSize);
+    if (waypoints.empty()) {
+        return;
+    }
+
+    // Reusing the player skeleton/clips as a placeholder NPC — swap in a
+    // dedicated pedestrian model+animations once one exists.
+    auto pedestrianModel = SceneLoader::GetOrLoadModel("models/player/player.fbx");
+    auto idleAnim = pedestrianModel->LoadAnimation("models/player/Idle.fbx");
+    auto walkAnim = pedestrianModel->LoadAnimation("models/player/Walking.fbx");
+
+    const int waypointCount = static_cast<int>(waypoints.size());
+    for (int i = 0; i < config.PedestriansPerChunk; ++i) {
+        auto entity = scene.CreateEntity();
+
+        // Stagger starting waypoints so pedestrians in the same chunk don't
+        // all spawn stacked on top of each other at index 0.
+        const int startIndex = (i * waypointCount) / config.PedestriansPerChunk;
+
+        auto& transform = scene.Registry.get<Transform>(entity);
+        transform.Position = waypoints[startIndex];
+        transform.Scale = glm::vec3(0.01f); // matches playerVisualTransform's scale in main.cpp — same source model/units
+
+        scene.Registry.emplace<MeshRenderer>(entity, pedestrianModel, nullptr);
+        scene.Registry.emplace<PedestrianTag>(entity);
+        scene.Registry.emplace<ChunkId>(entity, ChunkId{ chunkX, chunkZ });
+
+        auto& ai = scene.Registry.emplace<PedestrianAI>(entity);
+        ai.PathWaypoints = waypoints;
+        ai.CurrentWaypointIndex = startIndex;
+        ai.MoveSpeed = config.PedestrianMoveSpeed;
+
+        auto& animComp = scene.Registry.emplace<AnimatorComponent>(entity);
+        animComp.AnimatorPtr = std::make_shared<Animator>();
+        animComp.IdleAnim = idleAnim;
+        animComp.WalkAnim = walkAnim;
+        animComp.AnimatorPtr->PlayAnimation(idleAnim);
+    }
+}
 
 std::shared_ptr<Model> SceneLoader::GetOrLoadModel(const std::string& path) {
     auto it = s_modelCache.find(path);
@@ -244,10 +274,11 @@ void SceneLoader::LoadChunk(const std::string& path, Scene& scene, PhysicsWorld&
     // unconditionally — a chunk with no JSON entity file still needs ground,
     // otherwise it's a hole in the floor.
     {
-        const glm::vec3 halfExtents(chunkSize * 0.5f, kGroundThickness * 0.5f, chunkSize * 0.5f);
+        const auto& config = CityLayoutConfig::Get();
+        const glm::vec3 halfExtents(chunkSize * 0.5f, config.GroundThickness * 0.5f, chunkSize * 0.5f);
         const glm::vec3 center(
             chunkX * chunkSize + chunkSize * 0.5f,
-            -kGroundThickness * 0.5f,
+            -config.GroundThickness * 0.5f,
             chunkZ * chunkSize + chunkSize * 0.5f
         );
 
@@ -269,6 +300,8 @@ void SceneLoader::LoadChunk(const std::string& path, Scene& scene, PhysicsWorld&
     // Unconditional, same as the ground plate — works whether or not this
     // chunk also has a hand-authored JSON entity file below.
     GenerateCityBlock(scene, physicsWorld, chunkX, chunkZ, chunkSize);
+
+    
 
     std::ifstream file(path);
     if (!file.is_open()) {

@@ -42,7 +42,8 @@ public:
     void DrawInspector(Scene& scene);
     void DrawAssetBrowser(Scene& scene);
     void DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld);
-    bool DrawVehiclePanel(Scene& scene, PhysicsWorld& physicsWorld, class VehicleController* activeVehicle, const glm::vec3& spawnPos);
+    bool DrawVehiclePanel(Scene& scene, PhysicsWorld& physicsWorld, class VehicleController* activeVehicle,
+                       const glm::vec3& spawnPos, bool& outDespawnRequested);
     void DrawViewportSettings(Camera& camera, GridRenderer& gridRenderer);
     void DrawPlayerPanel(bool& playMode, CharacterController* controller);
 

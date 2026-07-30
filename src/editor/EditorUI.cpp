@@ -1169,7 +1169,9 @@ void EditorUI::DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld) {
     ImGui::End();
 }
 
-bool EditorUI::DrawVehiclePanel(Scene& scene, PhysicsWorld& physicsWorld, VehicleController* activeVehicle, const glm::vec3& spawnPos) {
+bool EditorUI::DrawVehiclePanel(Scene& scene, PhysicsWorld& physicsWorld, VehicleController* activeVehicle,
+                                 const glm::vec3& spawnPos, bool& outDespawnRequested) {
+    outDespawnRequested = false;
     if (!ShowVehiclePanel) return false;
     ImGui::Begin("Vehicle Test", &ShowVehiclePanel);
 
@@ -1178,6 +1180,18 @@ bool EditorUI::DrawVehiclePanel(Scene& scene, PhysicsWorld& physicsWorld, Vehicl
         spawnRequested = true;
     }
     ImGui::TextDisabled("Spawns just beside your current position");
+
+    ImGui::SameLine();
+    if (activeVehicle == nullptr) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button("Despawn Vehicle")) {
+        outDespawnRequested = true;
+    }
+    if (activeVehicle == nullptr) {
+        ImGui::EndDisabled();
+    }
+
     ImGui::Separator();
 
     if (activeVehicle != nullptr) {

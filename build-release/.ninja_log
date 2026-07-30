@@ -1,5 +1,5 @@
 # ninja log v7
-37	4153	8068289057147376	CMakeFiles/engine.dir/src/rendering/Camera.cpp.obj	5d9098c7b1970d84
+49	1246	8069187020521390	CMakeFiles/engine.dir/src/rendering/Camera.cpp.obj	5d9098c7b1970d84
 54	1435	8067830610921196	CMakeFiles/engine.dir/src/rendering/Mesh.cpp.obj	ce4ccf87662c026f
 133	3333	8066808952663645	CMakeFiles/engine.dir/src/rendering/Skybox.cpp.obj	1c4d92bb53137f77
 61	1465	8067830610992943	CMakeFiles/engine.dir/src/rendering/Material.cpp.obj	2738d11a6233dcd3
@@ -8,11 +8,11 @@
 97	6191	8066808952303598	CMakeFiles/engine.dir/src/rendering/Texture.cpp.obj	991b0ca3043de5b
 72	6955	8066808952043635	CMakeFiles/engine.dir/src/core/jobs/JobSystem.cpp.obj	3aa8d92319e1f65b
 51	9302	8066808951843588	CMakeFiles/engine.dir/src/core/Log.cpp.obj	e92f4f983275fb74
-50	5077	8066967464359997	CMakeFiles/engine.dir/src/scene/Components.cpp.obj	343c36acba674477
+160	5000	8069171782431390	CMakeFiles/engine.dir/src/scene/Components.cpp.obj	343c36acba674477
 79	9377	8066808952123650	CMakeFiles/engine.dir/src/rendering/Shader.cpp.obj	b9636ee5a9285646
-56	5444	8066967464419993	CMakeFiles/engine.dir/src/scene/Scene.cpp.obj	6bed8d3906d42e01
+166	6037	8069171782481375	CMakeFiles/engine.dir/src/scene/Scene.cpp.obj	6bed8d3906d42e01
 2926	10787	8066808980597029	CMakeFiles/engine.dir/src/scene/SpatialGrid.cpp.obj	55cb10a681e6cb0b
-337	2002	8067553868980047	CMakeFiles/engine.dir/src/rendering/GridRenderer.cpp.obj	abff98587fec8125
+62	1541	8069187020661084	CMakeFiles/engine.dir/src/rendering/GridRenderer.cpp.obj	abff98587fec8125
 9345	12558	8066809044782593	CMakeFiles/engine.dir/src/rendering/FollowCamera.cpp.obj	72bd756d22fa7408
 63	7507	8066823744961705	CMakeFiles/engine.dir/src/rendering/Model.cpp.obj	69ced3f0c1f7198a
 9378	14508	8066809045107225	CMakeFiles/engine.dir/src/rendering/Animation.cpp.obj	a5c3e7fd00c3edb1
@@ -25,10 +25,14 @@
 9303	17128	8066809044369466	CMakeFiles/engine.dir/src/physics/CharacterController.cpp.obj	63bddbeb31c150a2
 14241	17716	8066809093749255	CMakeFiles/engine.dir/src/rendering/FrustumRenderer.cpp.obj	85d494a4d337f7a9
 68	3462	8068336662887269	CMakeFiles/engine.dir/src/rendering/Primitives.cpp.obj	4e83045a7fd66ada
-345	13259	8068688963149797	CMakeFiles/engine.dir/src/main.cpp.obj	8159f6addc67d8a0
-56	8257	8068346325854971	CMakeFiles/engine.dir/src/editor/EditorUI.cpp.obj	d6d41daed25b49e9
-68	15265	8066967464539662	CMakeFiles/engine.dir/src/scene/SceneLoader.cpp.obj	7226f380c1e4f105
-76	16675	8066967464609686	CMakeFiles/engine.dir/src/scripting/ScriptEngine.cpp.obj	418a692b900b48e5
-13260	17927	8068689092293242	engine.exe	d2d0efaa87e94f6c
+58	13395	8070117668407916	CMakeFiles/engine.dir/src/main.cpp.obj	8159f6addc67d8a0
+68	9552	8069188497225444	CMakeFiles/engine.dir/src/editor/EditorUI.cpp.obj	d6d41daed25b49e9
+45	10797	8070113078091968	CMakeFiles/engine.dir/src/scene/SceneLoader.cpp.obj	7226f380c1e4f105
+179	18448	8069171782611774	CMakeFiles/engine.dir/src/scripting/ScriptEngine.cpp.obj	418a692b900b48e5
+5959	6557	8070118688916220	engine.exe	32ee06004485b653
 58	3888	8068385503656664	CMakeFiles/engine.dir/src/rendering/VehicleCamera.cpp.obj	6366b3cabf8ce491
 99	5857	8068333356982038	CMakeFiles/engine.dir/src/physics/VehicleController.cpp.obj	5542f048bde03b1f
+199	4706	8069171782811724	CMakeFiles/engine.dir/src/scene/CityLayout.cpp.obj	df270ee3a84fadbe
+192	9537	8069171782751385	CMakeFiles/engine.dir/src/scene/CityLayoutConfig.cpp.obj	ed6f18140d78d350
+52	4127	8070113078161966	CMakeFiles/engine.dir/src/scene/PedestrianSystem.cpp.obj	bc9c074b062d129d
+53	5958	8070118629860232	CMakeFiles/engine.dir/src/scene/PedestrianSpawnSystem.cpp.obj	b8d197804857b9b4
