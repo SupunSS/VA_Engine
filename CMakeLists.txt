@@ -57,6 +57,8 @@ add_executable(engine
     src/scene/PedestrianSystem.cpp
     src/scene/PedestrianSpawnSystem.cpp
     src/editor/HUD.cpp
+    src/audio/AudioEngine.cpp
+    src/scene/AudioSystem.cpp
 )
 
 target_include_directories(engine PRIVATE
@@ -68,4 +70,4 @@ target_include_directories(engine PRIVATE
 # Fixes the GLM experimental extension error (e.g., component_wise.hpp)
 target_compile_definitions(engine PRIVATE GLM_ENABLE_EXPERIMENTAL)
 
-target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} imgui::imgui Jolt::Jolt imguizmo::imguizmo)
+target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} imgui::imgui Jolt::Jolt imguizmo::imguizmo winmm)

@@ -9,6 +9,7 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
 #include "../rendering/Material.h"
+#include "../audio/AudioEngine.h"
 
 // Every entity that exists in the world has this. Cheap by design —
 // static props (streetlights, trash cans) never touch anything beyond this.
@@ -135,4 +136,54 @@ struct RigidBody {
           Shape(shape),
           BoxHalfExtents(boxHalfExtents),
           SphereRadius(sphereRadius) {}
+};
+
+// Generic looping/positional 3D audio source — ambient loops, or anything
+// else that just needs to sit in the world and play. Position is synced
+// from this entity's Transform every frame by AudioSystem; the component
+// itself only stores tuning + the underlying engine handle.
+struct AudioSource {
+    AudioClipId Clip = kInvalidAudioClip;
+    AudioSourceHandle Handle = kInvalidAudioSource;
+    bool Loop = true;
+    bool Autoplay = true;
+    float Volume = 1.0f;
+    float MinDistance = 2.0f;
+    float MaxDistance = 50.0f;
+};
+ 
+// Lightweight, generic "is this entity currently moving" flag. Exists so
+// FootstepAudio doesn't need to know about the player's character
+// controller specifically — whatever system drives an entity's movement
+// (main.cpp for the player) keeps this up to date, and AudioSystem just
+// reads it. Pedestrians don't need this; they already expose movement via
+// PedestrianAI::WaitTimer.
+struct MovementState {
+    bool IsMoving = false;
+    bool IsRunning = false;
+};
+ 
+// Drives footstep one-shots for anything that walks (player or pedestrian).
+// Deliberately separate from AudioSource since footsteps are timed
+// one-shots, not a single persistent looping sound.
+struct FootstepAudio {
+    AudioClipId WalkStepClip = kInvalidAudioClip;
+    AudioClipId RunStepClip = kInvalidAudioClip;   // optional — falls back to WalkStepClip if unset
+    float StrideInterval = 0.42f;                  // seconds between steps at walk pace
+    float RunStrideMultiplier = 0.65f;              // < 1 = faster steps while sprinting
+    float StepTimer = 0.0f;
+    float Volume = 0.6f;
+};
+ 
+// Engine note for a vehicle: pitch/volume are driven every frame from the
+// vehicle's current RPM (see AudioSystem::UpdateVehicleEngineSounds), on
+// top of a persistent looping AudioSource created when the vehicle spawns.
+struct VehicleEngineAudio {
+    AudioClipId EngineLoopClip = kInvalidAudioClip;
+    AudioSourceHandle Handle = kInvalidAudioSource;
+    float MinPitch = 0.7f;
+    float MaxPitch = 2.2f;
+    float MinVolume = 0.35f;
+    float MaxVolume = 1.0f;
+    float ReferenceRpm = 6000.0f; // RPM that maps to MaxPitch/MaxVolume — tune to your redline
 };

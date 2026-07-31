@@ -45,7 +45,7 @@
 			{
 				"command" : 2,
 				"file" : 1,
-				"line" : 71,
+				"line" : 73,
 				"parent" : 0
 			},
 			{
@@ -57,13 +57,13 @@
 			{
 				"command" : 4,
 				"file" : 1,
-				"line" : 69,
+				"line" : 71,
 				"parent" : 0
 			},
 			{
 				"command" : 5,
 				"file" : 1,
-				"line" : 62,
+				"line" : 64,
 				"parent" : 0
 			}
 		]
@@ -220,7 +220,9 @@
 				33,
 				34,
 				35,
-				36
+				36,
+				37,
+				38
 			]
 		}
 	],
@@ -274,6 +276,11 @@
 			{
 				"backtrace" : 3,
 				"fragment" : "\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\lib\\imguizmo.lib\"",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 3,
+				"fragment" : "winmm.lib",
 				"role" : "libraries"
 			},
 			{
@@ -337,6 +344,10 @@
 		{
 			"backtrace" : 3,
 			"id" : "imguizmo::imguizmo::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 3,
+			"fragment" : "winmm"
 		}
 	],
 	"name" : "engine",
@@ -395,14 +406,16 @@
 				33,
 				34,
 				35,
-				36
+				36,
+				37,
+				38
 			]
 		},
 		{
 			"name" : "",
 			"sourceIndexes" : 
 			[
-				37
+				39
 			]
 		}
 	],
@@ -628,6 +641,18 @@
 			"backtrace" : 2,
 			"compileGroupIndex" : 0,
 			"path" : "src/editor/HUD.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/audio/AudioEngine.cpp",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 2,
+			"compileGroupIndex" : 0,
+			"path" : "src/scene/AudioSystem.cpp",
 			"sourceGroupIndex" : 0
 		},
 		{

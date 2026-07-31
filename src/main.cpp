@@ -43,6 +43,8 @@
 #include "scene/PedestrianSystem.h"
 #include "scene/PedestrianSpawnSystem.h"
 #include "editor/HUD.h"
+#include "audio/AudioEngine.h"
+#include "scene/AudioSystem.h"
 
 namespace {
 struct WindowUserData {
@@ -57,8 +59,7 @@ struct WindowUserData {
     bool* mouseLookNeedsReset;
     double* lastCursorX;
     double* lastCursorY;
-    bool* mouseLookDragged; // true once the mouse has moved noticeably since press —
-                            // used to tell "click to select" apart from "drag to look"
+    bool* mouseLookDragged; // true once the mouse has moved noticeably since press
     Scene* scene;           // needed so the mouse callback can run viewport picking
 };
 
@@ -176,7 +177,6 @@ void CreatePostProcessTargets(PostProcessTargets& t, int width, int height)
 }
 
 entt::entity SpawnTestVehicle(Scene& scene, PhysicsWorld& physicsWorld, const glm::vec3& position) {
-    // Physics half-extents (must match VehicleController::CreateVehicle)
     constexpr float kHalfX = 0.9f;
     constexpr float kHalfY = 0.4f;
     constexpr float kHalfZ = 1.8f;
@@ -187,20 +187,24 @@ entt::entity SpawnTestVehicle(Scene& scene, PhysicsWorld& physicsWorld, const gl
 
     auto& transform = scene.Registry.get<Transform>(vehicleEntity);
     transform.Position = position;
-    transform.Scale = glm::vec3(1.0f); // model already in world-scale units
+    transform.Scale = glm::vec3(1.0f);
 
-    // ---- Chassis visual: low-poly car body --------------------------------
     auto chassisModel = Primitives::CreateVehicleBody(kHalfX, kHalfY, kHalfZ, 1.1f);
     auto chassisMaterial = std::make_shared<Material>();
-    chassisMaterial->albedoTint = glm::vec3(0.08f, 0.40f, 0.80f); // vivid blue body
+    chassisMaterial->albedoTint = glm::vec3(0.08f, 0.40f, 0.80f);
     scene.Registry.emplace<MeshRenderer>(vehicleEntity, chassisModel, chassisMaterial);
 
-    // ---- Physics + vehicle controller ------------------------------------
     auto controller = std::make_shared<VehicleController>(physicsWorld, position);
     auto& vehicleComp = scene.Registry.emplace<VehicleComponent>(vehicleEntity);
     vehicleComp.Controller = controller;
 
-    // ---- Wheel visuals ---------------------------------------------------
+    AudioClipId engineClip = AudioEngine::Get().LoadClip("audio/sfx/vehicle_engine_loop.wav");
+    auto& engineAudio = scene.Registry.emplace<VehicleEngineAudio>(vehicleEntity);
+    engineAudio.EngineLoopClip = engineClip;
+    engineAudio.Handle = AudioEngine::Get().CreateSource3D(
+        engineClip, position, true, true,
+        engineAudio.MinVolume, 3.0f, 60.0f);
+
     constexpr float kWheelRadius = 0.35f;
     constexpr float kWheelWidth  = 0.25f;
     auto wheelModel = Primitives::CreateWheel(kWheelRadius, kWheelWidth, 16);
@@ -285,6 +289,9 @@ int main() {
     EditorUI editorUI;
     editorUI.Initialize(window);
     HUD hud;
+    if (!AudioEngine::Get().Initialize()) {
+        Log::Info("AudioEngine failed to initialize — continuing without audio.");
+    }
     Log::Info("OpenGL loaded: {}", (const char*)glGetString(GL_VERSION));
 
     int width, height;
@@ -335,6 +342,13 @@ int main() {
     scene.Registry.emplace<Ammo>(playerEntity);
     scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
 
+    scene.Registry.emplace<MovementState>(playerEntity);
+    AudioClipId sfxFootstepWalk = AudioEngine::Get().LoadClip("audio/sfx/footstep_walk.wav");
+    AudioClipId sfxFootstepRun  = AudioEngine::Get().LoadClip("audio/sfx/footstep_run.wav");
+    auto& playerFootsteps = scene.Registry.emplace<FootstepAudio>(playerEntity);
+    playerFootsteps.WalkStepClip = sfxFootstepWalk;
+    playerFootsteps.RunStepClip  = sfxFootstepRun;
+
     auto playerVisualEntity = scene.CreateEntity();
     auto& playerVisualTransform = scene.Registry.get<Transform>(playerVisualEntity);
     playerVisualTransform.Parent = playerEntity;
@@ -370,10 +384,6 @@ int main() {
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 
-    // Captured once, right after the camera is constructed, so "Stop" can
-    // restore both position AND look direction exactly as they were when
-    // the engine started (Position alone isn't enough — yaw/pitch decide
-    // which way the camera is actually facing).
     const glm::vec3 kInitialCameraPosition = camera.Position;
     const float kInitialCameraYaw = camera.GetYaw();
     const float kInitialCameraPitch = camera.GetPitch();
@@ -398,9 +408,25 @@ int main() {
     pedestrianSpawnConfig.TargetPopulation = 40;
     pedestrianSpawnConfig.SpawnRadius = 40.0f;
     pedestrianSpawnConfig.DespawnRadius = 70.0f;
-    pedestrianSpawnConfig.ChunkSize = 50.0f; // must match ChunkManager(50.0f, ...) above
+    pedestrianSpawnConfig.ChunkSize = 50.0f;
 
-    // --- Debug overlay state for the vehicle specifically ---
+    {
+        auto ambientEntity = scene.CreateEntity();
+        scene.Registry.get<Transform>(ambientEntity).Position = kPlayerSpawnPosition;
+
+        AudioClipId sfxAmbientCity = AudioEngine::Get().LoadClip("src/audio/ambient/city_loop.mp3");
+        auto& ambientSource = scene.Registry.emplace<AudioSource>(ambientEntity);
+        ambientSource.Clip = sfxAmbientCity;
+        ambientSource.Loop = true;
+        ambientSource.Autoplay = true;
+        ambientSource.Volume = 0.5f;
+        ambientSource.MinDistance = 10.0f;
+        ambientSource.MaxDistance = 150.0f;
+        ambientSource.Handle = AudioEngine::Get().CreateSource3D(
+            ambientSource.Clip, kPlayerSpawnPosition, true, true,
+            ambientSource.Volume, ambientSource.MinDistance, ambientSource.MaxDistance);
+    }
+
     float debugVehicleDistance = 0.0f;
     float debugVehicleRadius = 0.0f;
     float debugVehicleDepth = 0.0f;
@@ -414,9 +440,12 @@ int main() {
     bool escWasPressed = false;
     bool deleteWasPressed = false;
     bool fWasPressed = false;
-    bool f5WasPressed = false; // F5: Play/Stop toggle shortcut (see loop below)
+    bool f5WasPressed = false;
 
-    // --- Temporary profiling instrumentation ----------------------------
+    // UI Visibility Toggle Flag
+    bool showUI = true;
+    bool f1WasPressed = false;
+
     float profileLogTimer = 0.0f;
     auto profileStart = []() { return std::chrono::high_resolution_clock::now(); };
     auto profileMs = [](auto start) {
@@ -424,11 +453,15 @@ int main() {
             std::chrono::high_resolution_clock::now() - start).count();
     };
 
-    // --- Reset helpers ---------------------------------------------------
     auto DestroyAllVehicles = [&]() {
         auto existingVehicles = scene.Registry.view<VehicleTag, VehicleComponent>();
         std::vector<entt::entity> vehiclesToDestroy(existingVehicles.begin(), existingVehicles.end());
         for (auto oldVehicleEntity : vehiclesToDestroy) {
+            if (scene.Registry.all_of<VehicleEngineAudio>(oldVehicleEntity)) {
+                auto& engineAudio = scene.Registry.get<VehicleEngineAudio>(oldVehicleEntity);
+                AudioEngine::Get().DestroySource(engineAudio.Handle);
+            }
+
             auto& oldVehicleComp = scene.Registry.get<VehicleComponent>(oldVehicleEntity);
             for (auto wheelEnt : oldVehicleComp.WheelEntities) {
                 if (wheelEnt != entt::null && scene.Registry.valid(wheelEnt)) {
@@ -439,12 +472,6 @@ int main() {
         }
     };
 
-    // Fully rewinds the world back to how it looked when the engine
-    // started: destroys spawned vehicles and physics test bodies, resets
-    // the player/character controller/camera, and clears editor selection.
-    // This is now a deliberate, separate action — NOT an automatic
-    // side-effect of stopping play mode (see the F5/Esc/Shift+Esc handling
-    // and the "Full Reset" button below).
     auto ResetToInitialState = [&]() {
         if (insideVehicle) {
             scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
@@ -482,9 +509,6 @@ int main() {
         editorUI.SelectedEntity = entt::null;
     };
 
-    // Leaves play mode without touching any world state — vehicles,
-    // physics bodies, player position, etc. all stay exactly as they were.
-    // Used by F5 and plain Esc.
     auto StopPlayModeKeepState = [&]() {
         playMode = false;
         SetCursorMode(window, GLFW_CURSOR_NORMAL, false);
@@ -492,9 +516,6 @@ int main() {
         mouseLookNeedsReset = true;
     };
 
-    // Enters play mode with the usual side effects (cursor lock, spawn
-    // position, streaming the chunks around the spawn point). Used by F5
-    // and by the panel's Play/Stop toggle.
     auto StartPlayMode = [&]() {
         playMode = true;
         SetCursorMode(window, GLFW_CURSOR_DISABLED, true);
@@ -701,6 +722,13 @@ int main() {
             lastKnownFramebufferHeight = framebufferHeight;
         }
 
+        // F1 Toggle for Editor UI
+        const bool f1Held = glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS;
+        if (f1Held && !f1WasPressed) {
+            showUI = !showUI;
+        }
+        f1WasPressed = f1Held;
+
         const bool altHeld = glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
         const bool rHeld = glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS;
         if (altHeld && rHeld && !altRWasPressed) {
@@ -713,18 +741,6 @@ int main() {
         bool a = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
         bool d = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
 
-        // --- Play/Stop shortcuts --------------------------------------------
-        // F5        : toggle Play <-> Stop. Stopping this way keeps the
-        //             world exactly as it is (no reset) — it's a quick
-        //             pause/resume, not a rewind.
-        // Esc       : Stop only (same "keep state" behavior as F5's stop).
-        // Shift+Esc : Stop AND fully reset the world back to how it looked
-        //             when the engine started. This is the old ESC
-        //             behavior, now opt-in via the modifier so a plain Esc
-        //             tap can't accidentally wipe your test state.
-        // A "Full Reset" button (drawn further down, near the other editor
-        // panels) performs the same full reset on demand, whether you're
-        // currently playing or already stopped.
         const bool f5Held = glfwGetKey(window, GLFW_KEY_F5) == GLFW_PRESS;
         if (f5Held && !f5WasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
             if (playMode) {
@@ -776,7 +792,6 @@ int main() {
             }
         }
 
-        // --- Profiled: physics step -----------------------------------------
         auto t_physicsStep = profileStart();
         physicsWorld.Step(deltaTime);
         double ms_physicsStep = profileMs(t_physicsStep);
@@ -847,6 +862,9 @@ int main() {
         }
 
         if (playMode) {
+            scene.Registry.get<MovementState>(playerEntity).IsMoving = false;
+            scene.Registry.get<MovementState>(playerEntity).IsRunning = false;
+
             if (!insideVehicle) {
                 glm::vec3 wishDir(0.0f);
                 if (w) wishDir += followCamera.GetForwardXZ();
@@ -870,6 +888,12 @@ int main() {
 
                 characterController.Sprinting = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
                 characterController.Update(deltaTime, wishDir, jumpEdge);
+
+                {
+                    auto& moveState = scene.Registry.get<MovementState>(playerEntity);
+                    moveState.IsMoving = glm::length(wishDir) > 0.001f;
+                    moveState.IsRunning = characterController.Sprinting;
+                }
 
                 PlayerAnimState desiredAnimState = PlayerAnimState::Idle;
                 if (glm::length(wishDir) > 0.001f) {
@@ -948,7 +972,6 @@ int main() {
         float frameTime = playMode ? deltaTime : 0.0f;
         playerAnimator.UpdateAnimation(frameTime);
 
-        // --- Pass 1: render the scene into the HDR framebuffer -------------
         glBindFramebuffer(GL_FRAMEBUFFER, postProcess.hdrFBO);
         glViewport(0, 0, postProcess.fullWidth, postProcess.fullHeight);
         glEnable(GL_DEPTH_TEST);
@@ -959,6 +982,14 @@ int main() {
         const glm::mat4 activeProjection = playMode ? (insideVehicle ? vehicleCamera.GetProjectionMatrix(aspectRatio) : followCamera.GetProjectionMatrix(aspectRatio)) : camera.GetProjectionMatrix(aspectRatio);
         const glm::vec3 activeCameraPos = playMode ? (insideVehicle ? vehicleCamera.Position : followCamera.Position) : camera.Position;
         const glm::mat4 activeViewProjection = activeProjection * activeView;
+
+        {
+            const glm::mat4 invActiveViewForAudio = glm::inverse(activeView);
+            const glm::vec3 listenerForward = glm::normalize(glm::vec3(invActiveViewForAudio * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+            const glm::vec3 listenerUp = glm::normalize(glm::vec3(invActiveViewForAudio * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)));
+            AudioSystem::UpdateListener(activeCameraPos, listenerForward, listenerUp);
+        }
+        AudioSystem::Update(scene, frameTime);
 
         if (freezeCullingFrustum) {
             if (!freezeCullingFrustumWasEnabled) {
@@ -1013,7 +1044,6 @@ int main() {
         triangleShader.SetVec3("uPointLightPos", glm::vec3(1.5f, 1.5f, 1.5f));
         triangleShader.SetVec3("uPointLightColor", glm::vec3(1.0f, 0.8f, 0.5f));
 
-        // --- Profiled: spatial grid rebuild --------------------------------
         auto t_spatialGrid = profileStart();
         spatialGrid.Clear();
         auto posView = scene.Registry.view<Transform>();
@@ -1022,12 +1052,10 @@ int main() {
         }
         double ms_spatialGrid = profileMs(t_spatialGrid);
 
-        // --- Profiled: chunk streaming --------------------------------------
         auto t_chunkUpdate = profileStart();
         chunkManager.Update(viewerPosition, scene, physicsWorld, maxRenderDistance);
         double ms_chunkUpdate = profileMs(t_chunkUpdate);
 
-        // --- Profiled: rigid body transform sync ----------------------------
         auto t_rigidBodySync = profileStart();
         auto rigidBodyView = scene.Registry.view<Transform, RigidBody>();
         for (auto entity : rigidBodyView) {
@@ -1041,7 +1069,6 @@ int main() {
             transform.Rotation = physicsWorld.GetBodyRotation(rigidBody.BodyId);
         }
 
-        // --- Sync vehicle wheel transforms ---------------------------------
         auto vehicleView = scene.Registry.view<Transform, VehicleComponent>();
         for (auto entity : vehicleView) {
             auto& vehicleComp = vehicleView.get<VehicleComponent>(entity);
@@ -1081,7 +1108,6 @@ int main() {
             Log::Info("Spatial query: {} entities within 20 units of viewer", nearby.size());
         }
 
-        // --- Profiled: culling + draw (both instanced and non-instanced) ---
         auto t_cullingAndDraw = profileStart();
 
         renderedEntityCount = 0;
@@ -1103,9 +1129,6 @@ int main() {
         static std::unordered_map<InstanceGroupKey, std::vector<glm::mat4>, InstanceGroupKeyHash> instanceGroups;
         instanceGroups.clear();
 
-        // Precompute which entities belong to the active vehicle (chassis +
-        // wheels) so the culling loop below can check membership with a
-        // simple set lookup instead of scanning per entity.
         std::unordered_set<entt::entity> debugVehicleEntities;
         if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity)) {
             debugVehicleEntities.insert(activeVehicleEntity);
@@ -1119,8 +1142,6 @@ int main() {
             }
         }
 
-        // Reset per-frame debug counters/state (only meaningful when a
-        // vehicle is actually active — stays at defaults otherwise).
         debugVisibleWheelCount = 0;
 
         const glm::mat4 invActiveViewForDebug = glm::inverse(activeView);
@@ -1158,7 +1179,7 @@ int main() {
             constexpr float kFrustumCullingMargin = 0.5f;
             const bool insideFrustum = cullingFrustum.IntersectsSphere(worldCenter, worldRadius + kFrustumCullingMargin);
 
-             if (scene.Registry.all_of<PedestrianTag>(entity)) {
+            if (scene.Registry.all_of<PedestrianTag>(entity)) {
                 const glm::vec3 toViewer = worldCenter - frozenCameraPosition;
                 const float pedDistSq = toViewer.x * toViewer.x + toViewer.y * toViewer.y + toViewer.z * toViewer.z;
                 if (pedDistSq > pedestrianSimulationDistance * pedestrianSimulationDistance) {
@@ -1167,11 +1188,7 @@ int main() {
                 }
             }
 
-            // --- Debug capture: log the vehicle chassis and its wheels only ---
             if (debugVehicleEntities.contains(entity)) {
-                // Depth along the camera's actual view direction — this is
-                // what the projection's near/far planes actually clip
-                // against, as opposed to straight-line distance.
                 const glm::vec3 toObject = worldCenter - frozenCameraPosition;
                 const float depthAlongView = glm::dot(toObject, viewForwardForDebug);
 
@@ -1205,14 +1222,14 @@ int main() {
             }
 
             if (scene.Registry.all_of<AnimatorComponent>(entity)) {
-    auto& animComp = scene.Registry.get<AnimatorComponent>(entity);
-    if (animComp.AnimatorPtr) {
-        triangleShader.SetMat4("uModel", worldMatrix);
-        triangleShader.SetMat4Array("uBoneMatrices", animComp.AnimatorPtr->GetFinalBoneMatrices());
-        renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
-    }
-    continue;
-}
+                auto& animComp = scene.Registry.get<AnimatorComponent>(entity);
+                if (animComp.AnimatorPtr) {
+                    triangleShader.SetMat4("uModel", worldMatrix);
+                    triangleShader.SetMat4Array("uBoneMatrices", animComp.AnimatorPtr->GetFinalBoneMatrices());
+                    renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
+                }
+                continue;
+            }
 
             InstanceGroupKey key{ renderer.ModelRef.get(), renderer.MaterialRef.get() };
             instanceGroups[key].push_back(worldMatrix);
@@ -1247,7 +1264,6 @@ int main() {
 
         double ms_cullingAndDraw = profileMs(t_cullingAndDraw);
 
-        // --- Profiled: bloom passes 2/3/4 -----------------------------------
         auto t_bloom = profileStart();
 
         glDisable(GL_DEPTH_TEST);
@@ -1298,7 +1314,6 @@ int main() {
 
         double ms_bloom = profileMs(t_bloom);
 
-        // --- Profiled: log the breakdown once per second --------------------
         profileLogTimer += deltaTime;
         if (profileLogTimer > 1.0f) {
             profileLogTimer = 0.0f;
@@ -1307,9 +1322,10 @@ int main() {
                 ms_physicsStep + ms_chunkUpdate + ms_spatialGrid + ms_rigidBodySync + ms_cullingAndDraw + ms_bloom);
         }
 
-        // --- Editor UI: drawn last, directly onto the composited backbuffer -
+        // --- Editor UI & HUD Rendering -------------------------------------
         editorUI.BeginFrame();
 
+        // 1. Gameplay HUD (Renders during playMode regardless of showUI)
         if (playMode) {
             hud.SetViewportSize(framebufferWidth, framebufferHeight);
 
@@ -1351,93 +1367,95 @@ int main() {
             hud.DrawInteractionPrompt(interactionPromptText);
         }
 
-        // --- Play Controls panel ---------------------------------------
-        // Shows the keyboard shortcuts and hosts the "Full Reset" button —
-        // the one deliberate action that rewinds vehicles, physics test
-        // bodies, and the player/camera back to their starting state.
-        // Works whether play mode is currently on or off.
-        {
-            ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_FirstUseEver);
-            ImGui::Begin("Play Controls");
-            ImGui::Text("Status: %s", playMode ? "Playing" : "Stopped");
-            ImGui::Separator();
-            ImGui::TextUnformatted("F5        : Play / Stop (keeps world state)");
-            ImGui::TextUnformatted("Esc       : Stop (keeps world state)");
-            ImGui::TextUnformatted("Shift+Esc : Stop + Full Reset");
-            ImGui::Separator();
-            if (ImGui::Button("Full Reset", ImVec2(120.0f, 0.0f))) {
+        // 2. Editor Windows & Tools (Toggled on/off using F1)
+        if (showUI) {
+            {
+                ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Play Controls");
+                ImGui::Text("Status: %s", playMode ? "Playing" : "Stopped");
+                ImGui::Separator();
+                static float masterVolume = 1.0f;
+                if (ImGui::SliderFloat("Master Volume", &masterVolume, 0.0f, 1.0f)) {
+                    AudioEngine::Get().SetMasterVolume(masterVolume);
+                }
+                ImGui::Separator();
+                ImGui::TextUnformatted("F1        : Toggle Editor UI");
+                ImGui::TextUnformatted("F5        : Play / Stop (keeps world state)");
+                ImGui::TextUnformatted("Esc       : Stop (keeps world state)");
+                ImGui::TextUnformatted("Shift+Esc : Stop + Full Reset");
+                ImGui::Separator();
+                if (ImGui::Button("Full Reset", ImVec2(120.0f, 0.0f))) {
+                    if (playMode) {
+                        StopPlayModeKeepState();
+                    }
+                    ResetToInitialState();
+                }
+                ImGui::End();
+            }
+
+            editorUI.DrawMenuBar();
+            editorUI.DrawSceneHierarchy(scene);
+            editorUI.DrawInspector(scene);
+            editorUI.DrawAssetBrowser(scene);
+            editorUI.DrawPhysicsPanel(scene, physicsWorld);
+
+            VehicleController* activeVehiclePtr = nullptr;
+            if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity) && scene.Registry.all_of<VehicleComponent>(activeVehicleEntity)) {
+                activeVehiclePtr = scene.Registry.get<VehicleComponent>(activeVehicleEntity).Controller.get();
+            } else {
+                auto vView = scene.Registry.view<VehicleComponent>();
+                if (!vView.empty()) {
+                    activeVehiclePtr = vView.get<VehicleComponent>(*vView.begin()).Controller.get();
+                }
+            }
+
+            bool despawnVehicleRequested = false;
+            const bool spawnVehicleRequested = editorUI.DrawVehiclePanel(scene, physicsWorld, activeVehiclePtr, viewerPosition, despawnVehicleRequested);
+
+            if (spawnVehicleRequested) {
+                if (insideVehicle) {
+                    scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
+                    insideVehicle = false;
+                }
+                activeVehicleEntity = entt::null;
+
+                DestroyAllVehicles();
+
+                const glm::vec3 playerPos = scene.Registry.get<Transform>(playerEntity).Position;
+                glm::vec3 forwardFlat = camera.GetFront();
+                forwardFlat.y = 0.0f;
+                if (glm::length(forwardFlat) < 0.001f) forwardFlat = glm::vec3(0.0f, 0.0f, -1.0f);
+                forwardFlat = glm::normalize(forwardFlat);
+
+                constexpr float kSpawnDistance = 5.0f;
+                constexpr float kSpawnHeight = 3.0f;
+                const glm::vec3 spawnPos = playerPos + forwardFlat * kSpawnDistance + glm::vec3(0.0f, kSpawnHeight, 0.0f);
+
+                activeVehicleEntity = SpawnTestVehicle(scene, physicsWorld, spawnPos);
+            }
+
+            editorUI.DrawGizmoToolbar();
+            editorUI.DrawTransformGizmo(scene, physicsWorld, camera, aspectRatio);
+
+            bool playModeBeforePanel = playMode;
+            editorUI.DrawPlayerPanel(playMode, &characterController);
+            if (playMode != playModeBeforePanel) {
                 if (playMode) {
+                    StartPlayMode();
+                } else {
                     StopPlayModeKeepState();
                 }
-                ResetToInitialState();
             }
-            ImGui::End();
-        }
-        
-        editorUI.DrawMenuBar();
-        editorUI.DrawSceneHierarchy(scene);
-        editorUI.DrawInspector(scene);
-        editorUI.DrawAssetBrowser(scene);
-        editorUI.DrawPhysicsPanel(scene, physicsWorld);
 
-        VehicleController* activeVehiclePtr = nullptr;
-        if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity) && scene.Registry.all_of<VehicleComponent>(activeVehicleEntity)) {
-            activeVehiclePtr = scene.Registry.get<VehicleComponent>(activeVehicleEntity).Controller.get();
-        } else {
-            auto vView = scene.Registry.view<VehicleComponent>();
-            if (!vView.empty()) {
-                activeVehiclePtr = vView.get<VehicleComponent>(*vView.begin()).Controller.get();
-            }
+            editorUI.DrawViewportSettings(camera, gridRenderer);
+            editorUI.DrawCullingPanel(freezeCullingFrustum, maxRenderDistance, renderedEntityCount, culledEntityCount);
+            editorUI.DrawCullingDebugOverlay(camera.GetYaw(), camera.GetPitch(), debugVehicleDepth,
+                                      debugVehicleDistance, debugVehicleRadius,
+                                      debugVehicleWithinDistance, debugVehicleInsideFrustum,
+                                      debugVisibleWheelCount);
+            editorUI.DrawStatsOverlay();
         }
 
-        bool despawnVehicleRequested = false;
-        const bool spawnVehicleRequested = editorUI.DrawVehiclePanel(scene, physicsWorld, activeVehiclePtr, viewerPosition, despawnVehicleRequested);
-
-    if (spawnVehicleRequested) {
-    if (insideVehicle) {
-        scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
-        insideVehicle = false;
-    }
-    activeVehicleEntity = entt::null;
-
-    DestroyAllVehicles();
-
-    const glm::vec3 playerPos = scene.Registry.get<Transform>(playerEntity).Position;
-    glm::vec3 forwardFlat = camera.GetFront();
-    forwardFlat.y = 0.0f;
-    if (glm::length(forwardFlat) < 0.001f) forwardFlat = glm::vec3(0.0f, 0.0f, -1.0f);
-    forwardFlat = glm::normalize(forwardFlat);
-
-    constexpr float kSpawnDistance = 5.0f;
-    constexpr float kSpawnHeight = 3.0f;
-    const glm::vec3 spawnPos = playerPos + forwardFlat * kSpawnDistance + glm::vec3(0.0f, kSpawnHeight, 0.0f);
-
-    activeVehicleEntity = SpawnTestVehicle(scene, physicsWorld, spawnPos);
-}
-
-        editorUI.DrawGizmoToolbar();
-        editorUI.DrawTransformGizmo(scene, physicsWorld, camera, aspectRatio);
-
-        // Play/Stop toggle button in the panel now behaves the same as
-        // F5/Esc: it only starts/stops play mode and does NOT reset the
-        // world. Use the "Full Reset" button above (or Shift+Esc) for that.
-        bool playModeBeforePanel = playMode;
-        editorUI.DrawPlayerPanel(playMode, &characterController);
-        if (playMode != playModeBeforePanel) {
-            if (playMode) {
-                StartPlayMode();
-            } else {
-                StopPlayModeKeepState();
-            }
-        }
-
-        editorUI.DrawViewportSettings(camera, gridRenderer);
-        editorUI.DrawCullingPanel(freezeCullingFrustum, maxRenderDistance, renderedEntityCount, culledEntityCount);
-        editorUI.DrawCullingDebugOverlay(camera.GetYaw(), camera.GetPitch(), debugVehicleDepth,
-                                  debugVehicleDistance, debugVehicleRadius,
-                                  debugVehicleWithinDistance, debugVehicleInsideFrustum,
-                                  debugVisibleWheelCount);
-        editorUI.DrawStatsOverlay();
         editorUI.Render();
 
         glfwSwapBuffers(window);
@@ -1445,6 +1463,8 @@ int main() {
 
     DestroyPostProcessTargets(postProcess);
     glDeleteVertexArrays(1, &fullscreenVAO);
+
+    AudioEngine::Get().Shutdown();
 
     glfwDestroyWindow(window);
     editorUI.Shutdown();
