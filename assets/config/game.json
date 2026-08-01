@@ -1,0 +1,48 @@
+{
+  "game": {
+    "title": "VA Engine Game",
+    "version": "0.1.0",
+    "targetFPS": 60,
+    "startScene": "scenes/test_scene.json",
+    "developerMode": true
+  },
+  "rendering": {
+    "renderDistance": 500,
+    "maxDrawCalls": 5000,
+    "shadowQuality": "high",
+    "antiAliasing": "FXAA",
+    "vsync": true,
+    "fullscreen": false,
+    "resolution": {
+      "width": 1920,
+      "height": 1080
+    }
+  },
+  "physics": {
+    "gravity": [0, -9.81, 0],
+    "timeStep": 0.016,
+    "substeps": 1,
+    "maxBodies": 10000
+  },
+  "audio": {
+    "masterVolume": 1.0,
+    "musicVolume": 0.7,
+    "sfxVolume": 0.8,
+    "voiceVolume": 1.0,
+    "spatialAudio": true
+  },
+  "gameplay": {
+    "difficulty": "normal",
+    "maxPlayers": 1,
+    "spawnProtectionTime": 3.0,
+    "playerHealthPoints": 100,
+    "playerMaxStamina": 100
+  },
+  "debug": {
+    "showFPS": true,
+    "showPhysicsDebug": false,
+    "showChunkBounds": false,
+    "showColliders": false,
+    "logLevel": "info"
+  }
+}

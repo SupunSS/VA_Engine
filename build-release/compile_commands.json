@@ -232,5 +232,17 @@
   "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scene\\AudioSystem.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\AudioSystem.cpp\"",
   "file": "D:/Projects/VA Engine/src/scene/AudioSystem.cpp",
   "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scene/AudioSystem.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scene\\ChunkDeltaStore.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\ChunkDeltaStore.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scene/ChunkDeltaStore.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scene/ChunkDeltaStore.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\scene\\Savesystem.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\Savesystem.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scene/Savesystem.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/scene/Savesystem.cpp.obj"
 }
 ]

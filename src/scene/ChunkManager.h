@@ -10,7 +10,7 @@ public:
     ChunkManager(float chunkSize, int loadRadius);
 
     void Update(const glm::vec3& viewerPosition, Scene& scene, PhysicsWorld& physicsWorld, float maxRenderDistance);
-
+    void ForceReloadAll(Scene& scene, PhysicsWorld& physicsWorld);
 private:
     struct ChunkKey {
         int x, z;

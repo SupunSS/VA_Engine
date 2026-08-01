@@ -11,6 +11,7 @@
 #include "CityLayoutConfig.h"
 #include "CityLayout.h"
 #include "../rendering/Animator.h"
+#include "ChunkDeltaStore.h"
 
 std::unordered_map<std::string, std::shared_ptr<Model>> SceneLoader::s_modelCache;
 
@@ -159,6 +160,12 @@ void GenerateCityBlock(Scene& scene, PhysicsWorld& physicsWorld, int chunkX, int
                 continue; // margins too large for this plot size — skip rather than produce a degenerate building
             }
 
+            const ChunkDelta* delta = ChunkDeltaStore::Get().GetDelta(chunkX, chunkZ);
+            const int64_t plotKey = ChunkDeltaStore::PackCoord(plotX, plotZ);
+            if (delta && delta->DestroyedBuildingPlots.count(plotKey)) {
+                continue; // this building was destroyed in a previous session
+            }
+
             const int plotSeed = plotX * 1000 + plotZ;
             const float heightT = HashToUnitFloat(chunkX, chunkZ, plotSeed);
             const float buildingHeight = config.BuildingMinHeight + heightT * (config.BuildingMaxHeight - config.BuildingMinHeight);
@@ -177,6 +184,7 @@ void GenerateCityBlock(Scene& scene, PhysicsWorld& physicsWorld, int chunkX, int
             const auto bodyId = physicsWorld.CreateBoxBody(center, halfExtents, /*isStatic=*/true);
             scene.Registry.emplace<RigidBody>(entity, bodyId, true, PhysicsShapeType::Box, halfExtents, 0.5f);
             scene.Registry.emplace<ChunkId>(entity, ChunkId{ chunkX, chunkZ });
+            scene.Registry.emplace<BuildingPlot>(entity, BuildingPlot{ plotX, plotZ });
         }
     }
 }
@@ -225,6 +233,25 @@ void SpawnPedestrians(Scene& scene, int chunkX, int chunkZ, float chunkSize) {
         animComp.IdleAnim = idleAnim;
         animComp.WalkAnim = walkAnim;
         animComp.AnimatorPtr->PlayAnimation(idleAnim);
+    }
+}
+
+void SceneLoader::RecordEntityDestructionDelta(Scene& scene, entt::entity entity) {
+    if (entity == entt::null || !scene.Registry.valid(entity)) {
+        return;
+    }
+
+    const auto* chunk = scene.Registry.try_get<ChunkId>(entity);
+    if (!chunk) {
+        return;
+    }
+
+    if (const auto* plot = scene.Registry.try_get<BuildingPlot>(entity)) {
+        ChunkDeltaStore::Get().RecordBuildingDestroyed(chunk->x, chunk->z, plot->PlotX, plot->PlotZ);
+    }
+
+    if (const auto* jsonIndex = scene.Registry.try_get<ChunkJsonIndex>(entity)) {
+        ChunkDeltaStore::Get().RecordJsonEntityDestroyed(chunk->x, chunk->z, jsonIndex->Index);
     }
 }
 
@@ -301,34 +328,67 @@ void SceneLoader::LoadChunk(const std::string& path, Scene& scene, PhysicsWorld&
     // chunk also has a hand-authored JSON entity file below.
     GenerateCityBlock(scene, physicsWorld, chunkX, chunkZ, chunkSize);
 
-    
+    // Deltas recorded for this chunk in a previous session (destroyed/moved
+    // hand-placed entities, runtime-spawned extras). Building-plot deltas
+    // are looked up separately inside GenerateCityBlock above.
+    const ChunkDelta* delta = ChunkDeltaStore::Get().GetDelta(chunkX, chunkZ);
 
     std::ifstream file(path);
     if (!file.is_open()) {
         Log::Warn("Chunk file not found: {} (ground plate + city block still created)", path);
-        return;
+    } else {
+        nlohmann::json data;
+        file >> data;
+
+        int count = 0;
+        int jsonIndex = 0;
+        for (const auto& entry : data["entities"]) {
+            const int thisIndex = jsonIndex++;
+
+            if (delta && delta->DestroyedJsonIndices.count(thisIndex)) {
+                continue; // destroyed in a previous session
+            }
+
+            std::string modelPath = entry["model"];
+            auto pos = entry["position"];
+            glm::vec3 finalPos(pos[0].get<float>(), pos[1].get<float>(), pos[2].get<float>());
+            glm::quat finalRot(1.0f, 0.0f, 0.0f, 0.0f);
+
+            if (delta) {
+                auto movedIt = delta->MovedJsonEntities.find(thisIndex);
+                if (movedIt != delta->MovedJsonEntities.end()) {
+                    finalPos = movedIt->second.first;
+                    finalRot = movedIt->second.second;
+                }
+            }
+
+            auto model = GetOrLoadModel(modelPath);
+            auto entity = scene.CreateEntity();
+            auto& t = scene.Registry.get<Transform>(entity);
+            t.Position = finalPos;
+            t.Rotation = finalRot;
+            scene.Registry.emplace<MeshRenderer>(entity, model);
+            scene.Registry.emplace<ChunkId>(entity, ChunkId{ chunkX, chunkZ });
+            scene.Registry.emplace<ChunkJsonIndex>(entity, ChunkJsonIndex{ thisIndex });
+
+            count++;
+        }
+
+        Log::Info("Chunk ({}, {}) loaded: {} entities + ground plate + city block", chunkX, chunkZ, count);
     }
 
-    nlohmann::json data;
-    file >> data;
-
-    int count = 0;
-    for (const auto& entry : data["entities"]) {
-        std::string modelPath = entry["model"];
-        auto pos = entry["position"];
-
-        auto model = GetOrLoadModel(modelPath);
-
-        auto entity = scene.CreateEntity();
-        scene.Registry.get<Transform>(entity).Position =
-            glm::vec3(pos[0].get<float>(), pos[1].get<float>(), pos[2].get<float>());
-        scene.Registry.emplace<MeshRenderer>(entity, model);
-        scene.Registry.emplace<ChunkId>(entity, ChunkId{ chunkX, chunkZ });
-
-        count++;
+    // Runtime-spawned extras recorded for this chunk in a previous session
+    if (delta) {
+        for (const auto& spawned : delta->SpawnedEntities) {
+            auto model = GetOrLoadModel(spawned.ModelPath);
+            auto entity = scene.CreateEntity();
+            auto& t = scene.Registry.get<Transform>(entity);
+            t.Position = spawned.Position;
+            t.Rotation = spawned.Rotation;
+            scene.Registry.emplace<MeshRenderer>(entity, model);
+            scene.Registry.emplace<ChunkId>(entity, ChunkId{ chunkX, chunkZ });
+        }
     }
-
-    Log::Info("Chunk ({}, {}) loaded: {} entities + ground plate + city block", chunkX, chunkZ, count);
 }
 
 void SceneLoader::UnloadChunk(Scene& scene, PhysicsWorld& physicsWorld, int chunkX, int chunkZ) {
@@ -353,6 +413,15 @@ void SceneLoader::UnloadChunk(Scene& scene, PhysicsWorld& physicsWorld, int chun
                 physicsWorld.DestroyBody(rigidBody.BodyId);
             }
         }
+
+        // NOTE: deliberately NOT calling RecordEntityDestructionDelta here.
+        // Unloading is routine streaming (the chunk went out of range), not
+        // a gameplay-driven destruction — recording a delta here would mark
+        // every building/entity as permanently destroyed the moment you
+        // walk away from it, since every chunk gets unloaded constantly as
+        // the player moves. Deltas are recorded ONLY at the point of actual
+        // destructive intent (see EditorUI::DeleteSelectedEntity, and any
+        // future gameplay destruction system).
         scene.DestroyEntity(entity);
     }
 

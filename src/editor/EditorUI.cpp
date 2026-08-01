@@ -4,6 +4,7 @@
 #include "../rendering/Texture.h"
 #include "../scene/Components.h"
 #include "../scene/SceneLoader.h"
+#include "../scene/SaveSystem.h"
 #include "../physics/PhysicsWorld.h"
 #include "../physics/CharacterController.h"
 #include "../physics/VehicleController.h"
@@ -722,6 +723,7 @@ void EditorUI::DrawMenuBar() {
             ImGui::MenuItem("Viewport Settings", nullptr, &ShowViewportSettings);
             ImGui::MenuItem("Gizmo Toolbar", nullptr, &ShowGizmoToolbar);
             ImGui::MenuItem("Culling", nullptr, &ShowCullingPanel);
+            ImGui::MenuItem("Save / Load", nullptr, &ShowSaveLoadPanel);
             ImGui::Separator();
             ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
             ImGui::EndMenu();
@@ -1532,6 +1534,12 @@ void EditorUI::DeleteSelectedEntity(Scene& scene, PhysicsWorld& physicsWorld) {
         return;
     }
 
+    // Record the deletion as a persistent chunk delta BEFORE any teardown —
+    // this is what makes destroyed buildings/entities stay destroyed after
+    // the chunk streams out and back in, or after a save/load. No-ops
+    // safely for entities that aren't chunk-tagged (e.g. physics test props).
+    SceneLoader::RecordEntityDestructionDelta(scene, SelectedEntity);
+
     if (scene.Registry.all_of<RigidBody>(SelectedEntity)) {
         auto& rigidBody = scene.Registry.get<RigidBody>(SelectedEntity);
         if (!rigidBody.BodyId.IsInvalid()) {
@@ -1541,4 +1549,100 @@ void EditorUI::DeleteSelectedEntity(Scene& scene, PhysicsWorld& physicsWorld) {
 
     scene.DestroyEntity(SelectedEntity);
     SelectedEntity = entt::null;
+}
+
+// --- Save / Load ---------------------------------------------------------
+
+bool EditorUI::DrawSaveLoadPanel(std::string& outSlotName, bool& outIsSaveAction) {
+    if (!ShowSaveLoadPanel) return false;
+
+    bool actionRequested = false;
+    ImGui::Begin("Save / Load", &ShowSaveLoadPanel);
+
+    if (!m_saveSlotsLoaded) {
+        m_cachedSaveSlots = SaveSystem::ListSaveSlots();
+        m_saveSlotsLoaded = true;
+    }
+
+    ImGui::TextUnformatted("Slot name:");
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputText("##SaveSlotName", m_saveSlotNameBuffer, sizeof(m_saveSlotNameBuffer));
+
+    const bool hasSlotName = m_saveSlotNameBuffer[0] != '\0';
+    if (!hasSlotName) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button("Save Game", ImVec2(120.0f, 0.0f))) {
+        outSlotName = m_saveSlotNameBuffer;
+        outIsSaveAction = true;
+        actionRequested = true;
+        m_saveSlotsLoaded = false; // force a refresh next frame so the new slot appears in the list
+    }
+    if (!hasSlotName) {
+        ImGui::EndDisabled();
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Existing saves:");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Refresh")) {
+        m_cachedSaveSlots = SaveSystem::ListSaveSlots();
+        m_saveSlotsLoaded = true;
+    }
+
+    if (m_cachedSaveSlots.empty()) {
+        ImGui::TextDisabled("No saves yet.");
+    } else {
+        // Two-pass: draw the list first, then apply any delete requested
+        // during the pass. Deleting mid-iteration would invalidate the
+        // range-for over m_cachedSaveSlots while we're still using it.
+        int deleteIndex = -1;
+
+        for (int i = 0; i < static_cast<int>(m_cachedSaveSlots.size()); ++i) {
+            const std::string& slot = m_cachedSaveSlots[i];
+            ImGui::PushID(slot.c_str());
+            ImGui::BulletText("%s", slot.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Load")) {
+                outSlotName = slot;
+                outIsSaveAction = false;
+                actionRequested = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Delete")) {
+                m_deleteSaveCandidate = slot;
+                m_shouldOpenDeleteSavePopup = true;
+            }
+            ImGui::PopID();
+        }
+    }
+
+    // Confirmation popup — deleting a save is destructive and not undoable,
+    // so this follows the same pattern as DrawDeleteAssetPopup rather than
+    // deleting instantly on click.
+    if (m_shouldOpenDeleteSavePopup) {
+        ImGui::OpenPopup("Delete Save");
+        m_shouldOpenDeleteSavePopup = false;
+    }
+
+    if (ImGui::BeginPopupModal("Delete Save", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Delete save slot '%s'? This cannot be undone.", m_deleteSaveCandidate.c_str());
+
+        if (ImGui::Button("Delete")) {
+            SaveSystem::DeleteSaveSlot(m_deleteSaveCandidate);
+            m_deleteSaveCandidate.clear();
+            m_saveSlotsLoaded = false; // force a refresh so the deleted slot disappears from the list
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            m_deleteSaveCandidate.clear();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    ImGui::End();
+    return actionRequested;
 }

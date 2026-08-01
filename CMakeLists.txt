@@ -59,6 +59,8 @@ add_executable(engine
     src/editor/HUD.cpp
     src/audio/AudioEngine.cpp
     src/scene/AudioSystem.cpp
+    src/scene/ChunkDeltaStore.cpp
+    src/scene/Savesystem.cpp
 )
 
 target_include_directories(engine PRIVATE

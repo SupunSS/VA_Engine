@@ -320,8 +320,9 @@ std::shared_ptr<Model> CreateVehicleBody(float halfX, float halfY, float halfZ,
     const float cabinInsetX = halfX * 0.65f;
     const float cabinInsetZFront = halfZ * 0.25f;  // cabin ends before front bumper
     const float cabinInsetZBack  = halfZ * 0.30f;  // cabin ends before rear
+    // Cabin sits directly on body top (no gap) to avoid visible seams at certain angles
     const float cabinY0 = halfY;
-    const float cabinY1 = halfY + halfY * cabinHeightFraction;
+    const float cabinY1 = cabinY0 + halfY * cabinHeightFraction;
     const float cX0 = -cabinInsetX, cX1 = cabinInsetX;
     const float cZ0 = -halfZ + cabinInsetZBack;
     const float cZ1 =  halfZ - cabinInsetZFront;
@@ -340,14 +341,10 @@ std::shared_ptr<Model> CreateVehicleBody(float halfX, float halfY, float halfZ,
     // Lower body top — emitted as 3 pieces (front shoulder, rear shoulder, center strip
     // behind/in-front-of cabin) so there are no gaps around the cabin footprint.
     //
-    // These faces sit at the SAME Y as the cabin's own base (cabinY0 == bY1),
-    // which caused z-fighting/flickering depending on view angle — the GPU
-    // can't reliably decide which of two exactly-coplanar triangles is in
-    // front. Nudging these shoulder/gutter faces a hair below bY1 breaks
-    // the exact coplanarity without being visually noticeable (0.002 units
-    // is far smaller than anything else on this mesh).
-    constexpr float kShoulderYNudge = 0.02f;
-    const float shoulderY = bY1 - kShoulderYNudge;
+    // These faces sit slightly below cabinY0 to avoid z-fighting with the cabin base,
+    // but the offset is minimal (0.005 units) to keep the seam visually unnoticeable.
+    constexpr float kShoulderYNudge = 0.005f;
+    const float shoulderY = halfY - kShoulderYNudge;
 
     // Front shoulder (between front bumper and cabin front)
     addFace({-halfX,shoulderY, halfZ},{halfX,shoulderY, halfZ},{halfX,shoulderY,cZ1},{-halfX,shoulderY,cZ1});
@@ -361,8 +358,10 @@ std::shared_ptr<Model> CreateVehicleBody(float halfX, float halfY, float halfZ,
     std::vector<std::unique_ptr<Mesh>> meshes;
     meshes.push_back(std::make_unique<Mesh>(vertices, indices));
 
+    // Bounds are exact to the mesh geometry: cabin top is the highest point
     const glm::vec3 boundsMin(-halfX, -halfY, -halfZ);
-    const glm::vec3 boundsMax( halfX,  halfY + halfY * cabinHeightFraction, halfZ);
+    const float maxY = halfY + halfY * cabinHeightFraction;
+    const glm::vec3 boundsMax(halfX, maxY, halfZ);
     return std::make_shared<Model>(std::move(meshes), boundsMin, boundsMax);
 }
 

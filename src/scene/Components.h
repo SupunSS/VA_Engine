@@ -187,3 +187,16 @@ struct VehicleEngineAudio {
     float MaxVolume = 1.0f;
     float ReferenceRpm = 6000.0f; // RPM that maps to MaxPitch/MaxVolume — tune to your redline
 };
+
+// Identifies a procedurally-generated building by its plot coordinate within
+// the chunk (NOT array index — plot coords are stable across regenerations,
+// since building layout is deterministically hashed from chunkX/chunkZ/plotSeed).
+struct BuildingPlot {
+    int PlotX, PlotZ;
+};
+
+// Identifies a hand-placed entity from a chunk's JSON file by its position
+// in that file's "entities" array — stable as long as the JSON isn't reordered.
+struct ChunkJsonIndex {
+    int Index;
+};

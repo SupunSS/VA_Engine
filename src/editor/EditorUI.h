@@ -65,6 +65,14 @@ public:
     void DeleteSelectedEntity(Scene& scene, PhysicsWorld& physicsWorld);
     bool IsGizmoActive() const;
 
+    // --- Save / Load ---------------------------------------------------
+    // Draws the Save/Load panel. Returns true if the user requested a save
+    // or load action THIS frame — outSlotName is the chosen slot name,
+    // outIsSaveAction is true for "Save", false for "Load". The caller
+    // (main.cpp) is responsible for actually invoking SaveSystem and
+    // applying the result — this panel only reports the intent.
+    bool DrawSaveLoadPanel(std::string& outSlotName, bool& outIsSaveAction);
+
     GizmoOperation CurrentGizmoOperation = GizmoOperation::Translate;
 
     entt::entity SelectedEntity = entt::null;
@@ -80,6 +88,7 @@ public:
     bool ShowPlayerPanel = true;
     bool ShowGizmoToolbar = true;
     bool ShowCullingPanel = true;
+    bool ShowSaveLoadPanel = true;
 
 private:
     void EnsureAssetDirectories();
@@ -124,4 +133,11 @@ private:
     bool m_isRenamingAsset = false;
     bool m_shouldOpenDeletePopup = false;
     std::string m_assetStatusMessage;
+
+    // --- Save / Load state -----------------------------------------------
+    char m_saveSlotNameBuffer[128] = {};
+    std::vector<std::string> m_cachedSaveSlots;
+    bool m_saveSlotsLoaded = false; // lets us populate the list once instead of re-scanning disk every frame
+    std::string m_deleteSaveCandidate;       
+    bool m_shouldOpenDeleteSavePopup = false;
 };

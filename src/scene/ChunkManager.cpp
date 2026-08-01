@@ -92,3 +92,11 @@ void ChunkManager::Update(const glm::vec3& viewerPosition, Scene& scene, Physics
         m_loadedChunks.erase(key);
     }
 }
+
+void ChunkManager::ForceReloadAll(Scene& scene, PhysicsWorld& physicsWorld) {
+    for (const auto& key : m_loadedChunks) {
+        SceneLoader::UnloadChunk(scene, physicsWorld, key.x, key.z);
+    }
+    m_loadedChunks.clear();
+    m_hasLastCenter = false; // forces Update() to treat the next call as a fresh center, reloading everything
+}

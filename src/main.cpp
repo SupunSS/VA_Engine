@@ -45,6 +45,7 @@
 #include "editor/HUD.h"
 #include "audio/AudioEngine.h"
 #include "scene/AudioSystem.h"
+#include "scene/SaveSystem.h"
 
 namespace {
 struct WindowUserData {
@@ -180,13 +181,16 @@ entt::entity SpawnTestVehicle(Scene& scene, PhysicsWorld& physicsWorld, const gl
     constexpr float kHalfX = 0.9f;
     constexpr float kHalfY = 0.4f;
     constexpr float kHalfZ = 1.8f;
+    constexpr float kSpawnHeightOffset = 0.90f;
+
+    const glm::vec3 spawnPosition = position + glm::vec3(0.0f, kSpawnHeightOffset, 0.0f);
 
     auto vehicleEntity = scene.CreateEntity();
     scene.Registry.emplace<VehicleTag>(vehicleEntity);
     scene.Registry.emplace<VehicleOccupant>(vehicleEntity);
 
     auto& transform = scene.Registry.get<Transform>(vehicleEntity);
-    transform.Position = position;
+    transform.Position = spawnPosition;
     transform.Scale = glm::vec3(1.0f);
 
     auto chassisModel = Primitives::CreateVehicleBody(kHalfX, kHalfY, kHalfZ, 1.1f);
@@ -194,7 +198,7 @@ entt::entity SpawnTestVehicle(Scene& scene, PhysicsWorld& physicsWorld, const gl
     chassisMaterial->albedoTint = glm::vec3(0.08f, 0.40f, 0.80f);
     scene.Registry.emplace<MeshRenderer>(vehicleEntity, chassisModel, chassisMaterial);
 
-    auto controller = std::make_shared<VehicleController>(physicsWorld, position);
+    auto controller = std::make_shared<VehicleController>(physicsWorld, spawnPosition);
     auto& vehicleComp = scene.Registry.emplace<VehicleComponent>(vehicleEntity);
     vehicleComp.Controller = controller;
 
@@ -1448,6 +1452,107 @@ int main() {
             }
 
             editorUI.DrawViewportSettings(camera, gridRenderer);
+
+            {
+                std::string requestedSlotName;
+                bool isSaveAction = false;
+                if (editorUI.DrawSaveLoadPanel(requestedSlotName, isSaveAction)) {
+                    if (isSaveAction) {
+                        SaveGameData data;
+
+                        auto& savePlayerTransform = scene.Registry.get<Transform>(playerEntity);
+                        data.Player.PlayerTransform.Position = savePlayerTransform.Position;
+                        data.Player.PlayerTransform.Rotation = savePlayerTransform.Rotation;
+
+                        auto& saveHealth = scene.Registry.get<Health>(playerEntity);
+                        data.Player.Health = saveHealth.Current;
+                        data.Player.MaxHealth = saveHealth.Max;
+
+                        auto& saveAmmo = scene.Registry.get<Ammo>(playerEntity);
+                        data.Player.AmmoCurrent = saveAmmo.Current;
+                        data.Player.AmmoReserve = saveAmmo.Reserve;
+
+                        data.Player.InsideVehicle = insideVehicle;
+                        data.Player.ActiveVehicleIndex = -1;
+
+                        int vehicleIndex = 0;
+                        auto saveVehicleView = scene.Registry.view<Transform, VehicleTag, VehicleComponent>();
+                        for (auto vEntity : saveVehicleView) {
+                            auto& vTransform = saveVehicleView.get<Transform>(vEntity);
+                            SavedVehicleState vs;
+                            vs.ChassisTransform.Position = vTransform.Position;
+                            vs.ChassisTransform.Rotation = vTransform.Rotation;
+                            data.Vehicles.push_back(vs);
+
+                            if (vEntity == activeVehicleEntity) {
+                                data.Player.ActiveVehicleIndex = vehicleIndex;
+                            }
+                            ++vehicleIndex;
+                        }
+
+                        SaveSystem::WriteSaveFile(requestedSlotName, data);
+                        Log::Info("Saved game to slot '{}'.", requestedSlotName);
+                    } else {
+                        SaveGameData data;
+                        if (SaveSystem::ReadSaveFile(requestedSlotName, data)) {
+                            if (insideVehicle) {
+                                scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
+                                insideVehicle = false;
+                            }
+                            activeVehicleEntity = entt::null;
+                            DestroyAllVehicles();
+
+                            characterController.SetPosition(data.Player.PlayerTransform.Position);
+                            auto& loadPlayerTransform = scene.Registry.get<Transform>(playerEntity);
+                            loadPlayerTransform.Position = data.Player.PlayerTransform.Position;
+                            loadPlayerTransform.Rotation = data.Player.PlayerTransform.Rotation;
+
+                            auto& loadHealth = scene.Registry.get<Health>(playerEntity);
+                            loadHealth.Current = data.Player.Health;
+                            loadHealth.Max = data.Player.MaxHealth;
+
+                            auto& loadAmmo = scene.Registry.get<Ammo>(playerEntity);
+                            loadAmmo.Current = data.Player.AmmoCurrent;
+                            loadAmmo.Reserve = data.Player.AmmoReserve;
+
+                            // Re-stream every loaded chunk so building/entity deltas apply
+                            chunkManager.ForceReloadAll(scene, physicsWorld);
+                            chunkManager.Update(data.Player.PlayerTransform.Position, scene, physicsWorld, maxRenderDistance);
+
+                            // Recreate vehicles at their saved transforms
+                            std::vector<entt::entity> recreatedVehicles;
+                            for (const auto& vehicleData : data.Vehicles) {
+                                entt::entity newVehicle = SpawnTestVehicle(scene, physicsWorld, vehicleData.ChassisTransform.Position);
+                                auto& vc = scene.Registry.get<VehicleComponent>(newVehicle);
+                                if (vc.Controller) {
+                                    vc.Controller->SetChassisTransform(vehicleData.ChassisTransform.Position, vehicleData.ChassisTransform.Rotation);
+                                }
+                                recreatedVehicles.push_back(newVehicle);
+                            }
+
+                            // Restore vehicle occupancy if the player was driving when they saved
+                            if (data.Player.InsideVehicle && data.Player.ActiveVehicleIndex >= 0 &&
+                                data.Player.ActiveVehicleIndex < static_cast<int>(recreatedVehicles.size())) {
+                                activeVehicleEntity = recreatedVehicles[data.Player.ActiveVehicleIndex];
+                                insideVehicle = true;
+                                scene.Registry.get<VehicleOccupant>(activeVehicleEntity).DriverEntity = playerEntity;
+                                scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.0f);
+
+                                glm::vec3 snapPos; glm::quat snapRot;
+                                auto& vc = scene.Registry.get<VehicleComponent>(activeVehicleEntity);
+                                if (vc.Controller) {
+                                    vc.Controller->GetChassisTransform(snapPos, snapRot);
+                                    vehicleCamera.SetTarget(snapPos, snapRot, 0.0f, 0.016f);
+                                }
+                            }
+
+                            Log::Info("Loaded save slot '{}'.", requestedSlotName);
+                        } else {
+                            Log::Warn("Failed to load save slot '{}'.", requestedSlotName);
+                        }
+                    }
+                }
+            }
             editorUI.DrawCullingPanel(freezeCullingFrustum, maxRenderDistance, renderedEntityCount, culledEntityCount);
             editorUI.DrawCullingDebugOverlay(camera.GetYaw(), camera.GetPitch(), debugVehicleDepth,
                                       debugVehicleDistance, debugVehicleRadius,

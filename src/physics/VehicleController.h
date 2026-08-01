@@ -21,6 +21,7 @@ public:
     void Update(float deltaTime, float throttle, float brake, float steerInput, bool handbrake);
 
     void GetChassisTransform(glm::vec3& outPosition, glm::quat& outRotation) const;
+    void SetChassisTransform(const glm::vec3& position, const glm::quat& rotation);
     void GetWheelTransform(int wheelIndex, glm::vec3& outPosition, glm::quat& outRotation) const;
 
     float GetSpeedKmh() const;

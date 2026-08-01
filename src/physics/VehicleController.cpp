@@ -53,14 +53,21 @@ VehicleController::~VehicleController() {
 void VehicleController::CreateVehicle(const glm::vec3& position) {
     // 1. Chassis shape: Box half extents = (0.9m width, 0.4m height, 1.8f length)
     // Offset center of mass slightly lower (-0.2m) to increase anti-roll stability
+    // Spawn height: wheels need their centers at ~0.35 (wheel radius) when resting.
+    // suspension: attach at -0.1 from chassis, and with max length 0.45:
+    // wheel_center = chassis_y - 0.1 - 0.45 = chassis_y - 0.55
+    // For wheel_center = 0.35: chassis_y = 0.90
+    constexpr float kSpawnHeightOffset = 0.90f;
+    constexpr float kBodyCenterMassOffsetY = -0.2f;
+
     Vec3 halfExtents(0.9f, 0.4f, 1.8f);
     RefConst<Shape> boxShape = new BoxShape(halfExtents);
-    RefConst<Shape> chassisShape = OffsetCenterOfMassShapeSettings(Vec3(0.0f, -0.2f, 0.0f), boxShape).Create().Get();
+    RefConst<Shape> chassisShape = OffsetCenterOfMassShapeSettings(Vec3(0.0f, kBodyCenterMassOffsetY, 0.0f), boxShape).Create().Get();
 
     // 2. Chassis rigid body creation
     BodyCreationSettings chassisSettings(
         chassisShape,
-        RVec3(position.x, position.y + 0.6f, position.z),
+        RVec3(position.x, position.y + kSpawnHeightOffset, position.z),
         Quat::sIdentity(),
         EMotionType::Dynamic,
         m_world.GetMovingLayer()
@@ -281,4 +288,13 @@ void VehicleController::SetTireFriction(float friction) {
 
 void VehicleController::SetMaxSteerAngleDegrees(float angleDegrees) {
     m_maxSteerAngleDegrees = angleDegrees;
+}
+
+void VehicleController::SetChassisTransform(const glm::vec3& position, const glm::quat& rotation) {
+    if (m_chassisBodyId.IsInvalid()) return;
+    m_world.GetBodyInterface().SetPositionAndRotation(
+        m_chassisBodyId,
+        JPH::RVec3(position.x, position.y, position.z),
+        JPH::Quat(rotation.x, rotation.y, rotation.z, rotation.w),
+        JPH::EActivation::Activate);
 }
