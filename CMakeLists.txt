@@ -61,10 +61,17 @@ add_executable(engine
     src/scene/AudioSystem.cpp
     src/scene/ChunkDeltaStore.cpp
     src/scene/Savesystem.cpp
+    src/engine/Config.cpp
+    src/engine/Engine.cpp
+    src/engine/EventSystem.cpp
+    src/engine/HotReload.cpp
+    src/engine/LuaBindings.cpp
+    src/engine/Prefab.cpp
 )
 
 target_include_directories(engine PRIVATE
     ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/src/engine/public
     ${Stb_INCLUDE_DIR}
     ${LUA_INCLUDE_DIR}
 )

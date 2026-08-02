@@ -7,6 +7,9 @@
 #include <engine/public/EventSystem.h>
 #include <unordered_map>
 #include <vector>
+#include <algorithm>
+
+namespace VAPublic {
 
 /**
  * Internal implementation of event system
@@ -36,7 +39,7 @@ public:
         );
     }
 
-    void Emit(const std::string& eventName, const void* data = nullptr) override {
+    void Emit(const std::string& eventName, const void* data) override {
         auto it = m_subscribers.find(eventName);
         if (it == m_subscribers.end()) return;
 
@@ -90,3 +93,5 @@ void ShutdownEventSystem() {
         g_eventSystem = nullptr;
     }
 }
+
+} // namespace VAPublic

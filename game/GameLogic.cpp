@@ -8,6 +8,8 @@
 #include "GameLogic.h"
 #include <glm/glm.hpp>
 
+using namespace VAPublic;
+
 GameLogic::GameLogic(IEngine* engine)
     : m_engine(engine)
     , m_state(GameState::MainMenu)

@@ -5,7 +5,10 @@
  */
 
 #include "LuaBindings.h"
+#include <engine/public/ScriptingEngine.h>
 #include <iostream>
+
+using namespace VAPublic;
 
 void RegisterLuaBindings(sol::state& lua, IEngine* engine) {
     // ========================================================================
@@ -117,7 +120,7 @@ void RegisterLuaBindings(sol::state& lua, IEngine* engine) {
     };
 
     lua["Engine"]["GetPosition"] = [engine](EntityId entityId) -> sol::table {
-        sol::state_view lua_state(engine->GetScripting().GetLuaState());
+        sol::state_view lua_state(*engine->GetScripting().GetLuaState());
         Vec3 pos = engine->GetPosition(entityId);
         sol::table result = lua_state.create_table();
         result["x"] = pos.x;
@@ -136,7 +139,7 @@ void RegisterLuaBindings(sol::state& lua, IEngine* engine) {
     };
 
     lua["Engine"]["GetRotation"] = [engine](EntityId entityId) -> sol::table {
-        sol::state_view lua_state(engine->GetScripting().GetLuaState());
+        sol::state_view lua_state(*engine->GetScripting().GetLuaState());
         Quat rot = engine->GetRotation(entityId);
         sol::table result = lua_state.create_table();
         result["x"] = rot.x;
@@ -167,7 +170,7 @@ void RegisterLuaBindings(sol::state& lua, IEngine* engine) {
 
         RaycastHit hit = engine->Raycast(origin, direction, maxDist);
         
-        sol::state_view lua_state(engine->GetScripting().GetLuaState());
+        sol::state_view lua_state(*engine->GetScripting().GetLuaState());
         sol::table result = lua_state.create_table();
         result["hit"] = hit.hit;
         result["entityId"] = hit.entityId;
@@ -193,7 +196,7 @@ void RegisterLuaBindings(sol::state& lua, IEngine* engine) {
 
     // Input
     lua["Engine"]["GetInput"] = [engine]() -> sol::table {
-        sol::state_view lua_state(engine->GetScripting().GetLuaState());
+        sol::state_view lua_state(*engine->GetScripting().GetLuaState());
         InputState input = engine->GetInput();
         sol::table result = lua_state.create_table();
         result["mouseX"] = input.mouseX;
@@ -208,7 +211,7 @@ void RegisterLuaBindings(sol::state& lua, IEngine* engine) {
 
     // Camera
     lua["Engine"]["GetCameraPosition"] = [engine]() -> sol::table {
-        sol::state_view lua_state(engine->GetScripting().GetLuaState());
+        sol::state_view lua_state(*engine->GetScripting().GetLuaState());
         Vec3 pos = engine->GetCameraPosition();
         sol::table result = lua_state.create_table();
         result["x"] = pos.x;

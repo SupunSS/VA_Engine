@@ -3,10 +3,17 @@
  */
 
 #include "Prefab.h"
-#include <engine/public/Scene.h>
+#include "../scene/Scene.h"
 #include <fstream>
 #include <filesystem>
 #include <iostream>
+
+// Safe here (unlike in Prefab.h): this translation unit never includes
+// "../scene/Components.h", so there's no real ::Transform to collide with.
+using VAPublic::EntityId;
+using VAPublic::Vec3;
+using VAPublic::Quat;
+using VAPublic::Transform;
 
 namespace fs = std::filesystem;
 
@@ -138,7 +145,7 @@ EntityId PrefabManager::CreateEntityFromPrefab(const Prefab& prefab, const Trans
     // 4. Handle component initialization (models, physics, scripts, etc.)
     
     if (scene) {
-        EntityId entityId = scene->CreateEntity();
+        EntityId entityId = static_cast<EntityId>(scene->CreateEntity());
         
         // Apply all components from prefab
         for (const auto& [componentName, componentData] : prefab.componentData.items()) {

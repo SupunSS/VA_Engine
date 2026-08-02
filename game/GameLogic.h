@@ -1,6 +1,6 @@
 #pragma once
 
-#include <engine/EnginePublic.h>
+#include <engine/public/EnginePublic.h>
 
 /**
  * Main game logic controller
@@ -14,7 +14,7 @@
  */
 class GameLogic {
 public:
-    GameLogic(IEngine* engine);
+    GameLogic(VAPublic::IEngine* engine);
     ~GameLogic();
 
     /**
@@ -22,7 +22,7 @@ public:
      * @param deltaTime Time since last frame
      * @param input Current input state
      */
-    void Update(float deltaTime, const InputState& input);
+    void Update(float deltaTime, const VAPublic::InputState& input);
 
     /**
      * Render game UI/debug
@@ -38,7 +38,7 @@ public:
      * Spawn an NPC
      * @param position Spawn position
      */
-    void SpawnNPC(const Vec3& position);
+    void SpawnNPC(const VAPublic::Vec3& position);
 
     /**
      * Get current game state
@@ -54,13 +54,13 @@ public:
     void SetState(GameState newState);
 
 private:
-    IEngine* m_engine;
+    VAPublic::IEngine* m_engine;
     GameState m_state;
-    EntityId m_playerVehicle;
+    VAPublic::EntityId m_playerVehicle;
     float m_elapsedTime;
 
     // Input handling
-    void HandleInput(const InputState& input);
+    void HandleInput(const VAPublic::InputState& input);
 
     // Gameplay
     void UpdatePlayerVehicle(float deltaTime);

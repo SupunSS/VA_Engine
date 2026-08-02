@@ -3,9 +3,9 @@
 #include <glm/glm.hpp>
 #include <cstdint>
 #include <functional>
-
-// Forward declarations
-namespace entt { class registry; }
+#include <entt/fwd.hpp>   
+#include <glm/gtc/quaternion.hpp>
+namespace VAPublic {
 
 // ============================================================================
 // FUNDAMENTAL TYPES
@@ -25,7 +25,7 @@ using Mat4 = glm::mat4;
 using Quat = glm::quat;
 
 // ============================================================================
-// TRANSFORM
+// TRANSFORM (public-facing DTO — distinct from the internal ECS ::Transform)
 // ============================================================================
 
 struct Transform {
@@ -82,12 +82,12 @@ struct AudioClip {
 // ============================================================================
 
 enum class KeyCode {
-    W, A, S, D,           // Movement
-    Space, LeftShift,     // Jump/Sprint
-    E, F,                 // Interact
-    Escape,               // Menu
-    Mouse0, Mouse1,       // Click
-    Up, Down, Left, Right // Arrow keys
+    W, A, S, D,
+    Space, LeftShift,
+    E, F,
+    Escape,
+    Mouse0, Mouse1,
+    Up, Down, Left, Right
 };
 
 struct InputState {
@@ -103,3 +103,5 @@ struct InputState {
 
 using EntityCallback = std::function<void(EntityId)>;
 using EventCallback = std::function<void(const void*)>;
+
+} // namespace VAPublic

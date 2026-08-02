@@ -26,6 +26,14 @@
 
 using json = nlohmann::json;
 
+// NOTE: Deliberately NOT doing `using VAPublic::Transform;` (or similar) here.
+// This header gets included alongside "../scene/Components.h" in some
+// translation units (e.g. Engine.cpp via Adapters.h), which defines a
+// *different*, real ECS `::Transform` component. A global-scope using
+// declaration for VAPublic::Transform would collide with it and make
+// `Transform` ambiguous wherever both are visible. Every VAPublic type is
+// fully qualified below instead.
+
 // Forward declarations
 class Scene;
 
@@ -85,7 +93,7 @@ public:
      * @param scene Scene to add entity to (or nullptr to create only)
      * @return EntityId of new entity (0 if failed)
      */
-    EntityId Instantiate(const std::string& prefabName, const Vec3& position, Scene* scene = nullptr);
+    VAPublic::EntityId Instantiate(const std::string& prefabName, const VAPublic::Vec3& position, Scene* scene = nullptr);
 
     /**
      * Instantiate with custom position and rotation
@@ -95,8 +103,8 @@ public:
      * @param scene Scene to add entity to
      * @return EntityId of new entity
      */
-    EntityId Instantiate(const std::string& prefabName, const Vec3& position,
-                        const Quat& rotation, Scene* scene = nullptr);
+    VAPublic::EntityId Instantiate(const std::string& prefabName, const VAPublic::Vec3& position,
+                        const VAPublic::Quat& rotation, Scene* scene = nullptr);
 
     /**
      * Instantiate with full transform override
@@ -105,7 +113,7 @@ public:
      * @param scene Scene to add entity to
      * @return EntityId of new entity
      */
-    EntityId Instantiate(const std::string& prefabName, const Transform& transform,
+    VAPublic::EntityId Instantiate(const std::string& prefabName, const VAPublic::Transform& transform,
                         Scene* scene = nullptr);
 
     /**
@@ -115,7 +123,7 @@ public:
      * @param scene Scene to add to
      * @return EntityId of clone
      */
-    EntityId Clone(EntityId sourceEntityId, const Vec3& position, Scene* scene = nullptr);
+    VAPublic::EntityId Clone(VAPublic::EntityId sourceEntityId, const VAPublic::Vec3& position, Scene* scene = nullptr);
 
     /**
      * Get all loaded prefab names
@@ -145,12 +153,12 @@ private:
     /**
      * Create entity from prefab data
      */
-    EntityId CreateEntityFromPrefab(const Prefab& prefab, const Transform& transform, Scene* scene);
+    VAPublic::EntityId CreateEntityFromPrefab(const Prefab& prefab, const VAPublic::Transform& transform, Scene* scene);
 
     /**
      * Apply component data from prefab
      */
-    void ApplyComponent(EntityId entityId, const std::string& componentName,
+    void ApplyComponent(VAPublic::EntityId entityId, const std::string& componentName,
                        const json& componentData, Scene* scene);
 };
 

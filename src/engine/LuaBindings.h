@@ -14,14 +14,14 @@
 
 #include <engine/public/EngineAPI.h>
 #include <engine/public/Types.h>
-#include <sol2/sol.hpp>
+#include <sol/sol.hpp>
 #include <memory>
 
 /**
  * Register all engine functions with Lua
  * Call this during engine initialization
  */
-void RegisterLuaBindings(sol::state& lua, IEngine* engine);
+void RegisterLuaBindings(sol::state& lua, VAPublic::IEngine* engine);
 
 /**
  * Example of how to use bindings:

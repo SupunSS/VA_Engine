@@ -149,4 +149,3 @@ void GameLogic::Update(float deltaTime, const InputState& input) {
 4. **Create Lua scripts** for hot-reloadable game logic
 5. **Config-drive everything** - use `/assets/config/` files
 
-Start small and expand! 🎮

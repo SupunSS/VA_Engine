@@ -46,6 +46,7 @@
 #include "audio/AudioEngine.h"
 #include "scene/AudioSystem.h"
 #include "scene/SaveSystem.h"
+#include <engine/public/EnginePublic.h>
 
 namespace {
 struct WindowUserData {
@@ -391,6 +392,9 @@ int main() {
     const glm::vec3 kInitialCameraPosition = camera.Position;
     const float kInitialCameraYaw = camera.GetYaw();
     const float kInitialCameraPitch = camera.GetPitch();
+
+    VAPublic::IEngine* engine = VAPublic::InitializeEngine("config/engine.yaml");
+    VAPublic::ConnectEngineSystems(engine, &scene, &physicsWorld, &AudioEngine::Get(), &scriptEngine, &camera);
 
     GridRenderer gridRenderer;
     Skybox skybox;
@@ -994,6 +998,15 @@ int main() {
             AudioSystem::UpdateListener(activeCameraPos, listenerForward, listenerUp);
         }
         AudioSystem::Update(scene, frameTime);
+
+        static float engineTestTimer = 0.0f;
+        engineTestTimer += deltaTime;
+        if (engineTestTimer > 3.0f) {
+            engineTestTimer = 0.0f;
+            VAPublic::Vec3 posViaEngine = engine->GetPosition(static_cast<VAPublic::EntityId>(playerEntity));
+            Log::Info("[EngineAPI smoke test] player position via IEngine: ({:.2f}, {:.2f}, {:.2f})",
+                      posViaEngine.x, posViaEngine.y, posViaEngine.z);
+        }
 
         if (freezeCullingFrustum) {
             if (!freezeCullingFrustumWasEnabled) {
