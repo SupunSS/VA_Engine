@@ -14,9 +14,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <unordered_set>
 
 class Texture;
 class CharacterController; // used only by pointer here — full type comes from CharacterController.h in the .cpp
+class ScriptEngine; // forward decl — only a reference is needed in the header
 
 enum class GizmoOperation {
     Translate,
@@ -73,6 +75,14 @@ public:
     // applying the result — this panel only reports the intent.
     bool DrawSaveLoadPanel(std::string& outSlotName, bool& outIsSaveAction);
 
+    // --- Script Editor ---------------------------------------------------
+    // In-engine Lua editor: lists .lua files under game/scripts/, lets you
+    // edit and save them, and immediately runs the saved script via the
+    // real ScriptEngine. Also registers a HotReloadManager watch on first
+    // save so external edits to the same file (e.g. from a text editor)
+    // trigger a re-run too, without needing to return to this panel.
+    void DrawScriptEditorPanel(ScriptEngine& scriptEngine);
+
     GizmoOperation CurrentGizmoOperation = GizmoOperation::Translate;
 
     entt::entity SelectedEntity = entt::null;
@@ -89,9 +99,12 @@ public:
     bool ShowGizmoToolbar = true;
     bool ShowCullingPanel = true;
     bool ShowSaveLoadPanel = true;
-
+    bool ShowScriptEditorPanel = true;
 private:
     void EnsureAssetDirectories();
+    void RefreshScriptFileList();
+    void LoadScriptIntoEditor(const std::filesystem::path& scriptPath);
+    void SaveCurrentScript(ScriptEngine& scriptEngine);
     void ImportPendingDroppedFiles();
     void DrawAssetEntry(Scene& scene, const std::filesystem::directory_entry& entry);
     void DrawDeleteAssetPopup();
@@ -140,4 +153,13 @@ private:
     bool m_saveSlotsLoaded = false; // lets us populate the list once instead of re-scanning disk every frame
     std::string m_deleteSaveCandidate;       
     bool m_shouldOpenDeleteSavePopup = false;
+
+    // --- Script Editor state ----------------------------------------------
+    std::vector<std::filesystem::path> m_scriptFiles;
+    bool m_scriptFilesLoaded = false;
+    std::filesystem::path m_selectedScriptPath;
+    std::string m_scriptEditBuffer;
+    bool m_scriptBufferDirty = false;
+    std::string m_scriptStatusMessage;
+    std::unordered_set<std::string> m_watchedScriptPaths; // avoid re-registering the same HotReload watch every save
 };

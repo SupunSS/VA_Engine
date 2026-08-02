@@ -19,8 +19,12 @@ find_package(imgui CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
 find_package(imguizmo CONFIG REQUIRED)
 
-add_executable(engine 
-    src/main.cpp
+# ============================================================================
+# ENGINE CORE LIBRARY
+# Everything in /src/ except main.cpp — this is the piece game developers
+# never need to see or recompile. Ship this + the /public/ headers to them.
+# ============================================================================
+add_library(va_engine_core STATIC
     src/core/Log.cpp
     src/core/memory/StackAllocator.cpp
     src/core/memory/PoolAllocator.cpp
@@ -69,7 +73,7 @@ add_executable(engine
     src/engine/Prefab.cpp
 )
 
-target_include_directories(engine PRIVATE
+target_include_directories(va_engine_core PUBLIC
     ${PROJECT_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/src/engine/public
     ${Stb_INCLUDE_DIR}
@@ -77,6 +81,29 @@ target_include_directories(engine PRIVATE
 )
 
 # Fixes the GLM experimental extension error (e.g., component_wise.hpp)
-target_compile_definitions(engine PRIVATE GLM_ENABLE_EXPERIMENTAL)
+target_compile_definitions(va_engine_core PUBLIC GLM_ENABLE_EXPERIMENTAL)
 
-target_link_libraries(engine PRIVATE glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} imgui::imgui Jolt::Jolt imguizmo::imguizmo winmm)
+target_link_libraries(va_engine_core PUBLIC
+    glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT
+    nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} imgui::imgui
+    Jolt::Jolt imguizmo::imguizmo winmm
+)
+
+# ============================================================================
+# ENGINE DEV SANDBOX EXECUTABLE
+# Your existing test/dev harness — unchanged behavior, just now linked
+# against the core library instead of being compiled monolithically.
+# ============================================================================
+add_executable(engine src/main.cpp)
+target_link_libraries(engine PRIVATE va_engine_core)
+
+# ============================================================================
+# GAME EXECUTABLE
+# This is what game developers actually build. It only ever touches
+# /game/ and /assets/ — never /src/.
+# ============================================================================
+add_executable(game
+    game/main.cpp
+    game/GameLogic.cpp
+)
+target_link_libraries(game PRIVATE va_engine_core)

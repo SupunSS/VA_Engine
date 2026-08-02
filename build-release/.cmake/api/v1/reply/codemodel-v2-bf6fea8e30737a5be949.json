@@ -133,7 +133,9 @@
 					"source" : ".",
 					"targetIndexes" : 
 					[
-						0
+						0,
+						1,
+						2
 					]
 				}
 			],
@@ -165,7 +167,9 @@
 					"name" : "GTAEngine",
 					"targetIndexes" : 
 					[
-						0
+						0,
+						1,
+						2
 					]
 				}
 			],
@@ -174,8 +178,22 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "engine::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-engine-Release-b9e314b82481ff048117.json",
+					"jsonFile" : "target-engine-Release-92d7d1f88d9c0342d3be.json",
 					"name" : "engine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "game::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-game-Release-d3be8eda313e76c712d2.json",
+					"name" : "game",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "va_engine_core::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-va_engine_core-Release-6cf9936b3259a90e2066.json",
+					"name" : "va_engine_core",
 					"projectIndex" : 0
 				}
 			]

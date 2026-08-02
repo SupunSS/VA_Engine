@@ -14,6 +14,7 @@ public:
     void CallUpdate(float deltaTime);
 
     void CheckForReload(float deltaTime);
+    sol::state& GetLuaState() { return m_lua; }
 
 private:
     void BindEngineAPI();

@@ -14,12 +14,6 @@
 
 #include <iostream>
 
-// NOTE: Do not add `using namespace VAPublic;` here — VAPublic::Vec3 etc. are
-// fine, but several VAPublic interface names (IScene, IPhysicsWorld, IAudioEngine)
-// intentionally differ from the real engine class names (Scene, PhysicsWorld,
-// AudioEngine) specifically so they can't be accidentally confused. Keep every
-// VAPublic type explicitly qualified below.
-
 // ============================================================================
 // SceneAdapter
 // ============================================================================
@@ -105,6 +99,8 @@ public:
         // or physics will double-step.
         m_physics->Step(deltaTime);
     }
+
+    ::PhysicsWorld* GetRealPhysics() { return m_physics; }
 
 private:
     ::PhysicsWorld* m_physics;
@@ -204,6 +200,8 @@ public:
     bool HasFunction(const std::string&) override {
         return false;
     }
+
+    ::ScriptEngine* GetRealScriptEngine() { return m_script; }
 
 private:
     ::ScriptEngine* m_script;

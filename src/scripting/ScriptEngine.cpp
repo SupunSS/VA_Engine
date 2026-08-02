@@ -69,7 +69,9 @@ void ScriptEngine::RunScript(const std::string& path) {
     if (!result.valid()) {
         sol::error err = result;
         Log::Error("Lua script error: {}", err.what());
-        ENGINE_ASSERT(false, "Lua script failed to run");
+        return; // Non-fatal — a broken script (esp. one being live-edited in
+                // the in-engine Script Editor) should log and stop, not
+                // crash the whole engine.
     }
 
     // Run one-time setup after the script's functions are defined

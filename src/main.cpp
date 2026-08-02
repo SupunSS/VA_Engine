@@ -47,6 +47,7 @@
 #include "scene/AudioSystem.h"
 #include "scene/SaveSystem.h"
 #include <engine/public/EnginePublic.h>
+#include "engine/LuaBindings.h"
 
 namespace {
 struct WindowUserData {
@@ -385,7 +386,6 @@ int main() {
 
     ScriptEngine scriptEngine;
     scriptEngine.Initialize(&scene);
-    scriptEngine.RunScript("scripts/test.lua");
 
     Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 
@@ -395,6 +395,14 @@ int main() {
 
     VAPublic::IEngine* engine = VAPublic::InitializeEngine("config/engine.yaml");
     VAPublic::ConnectEngineSystems(engine, &scene, &physicsWorld, &AudioEngine::Get(), &scriptEngine, &camera);
+    
+    // Bind the public VAPublic Engine API (Engine:Subscribe, Engine:Log,
+    // Engine:SpawnEntity, etc.) into ScriptEngine's actual Lua state. Must
+    // happen after ConnectEngineSystems() so `engine` is fully wired up,
+    // and before any script that references the `Engine` global runs.
+    RegisterLuaBindings(scriptEngine.GetLuaState(), engine);
+
+    scriptEngine.RunScript("scripts/test.lua");
 
     GridRenderer gridRenderer;
     Skybox skybox;
@@ -749,6 +757,17 @@ int main() {
         bool a = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
         bool d = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
 
+         // While any ImGui widget wants keyboard input (e.g. typing in the
+        // Script Editor's text box), suppress WASD so it doesn't also drive
+        // camera movement or player movement underneath the UI.
+        const bool uiWantsKeyboard = ImGui::GetIO().WantCaptureKeyboard;
+        if (uiWantsKeyboard) {
+            w = false;
+            s = false;
+            a = false;
+            d = false;
+        }
+
         const bool f5Held = glfwGetKey(window, GLFW_KEY_F5) == GLFW_PRESS;
         if (f5Held && !f5WasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
             if (playMode) {
@@ -781,9 +800,9 @@ int main() {
             camera.ProcessKeyboard(w, s, a, d, deltaTime);
 
             constexpr float kVerticalSpeedMultiplier = 2.0f;
-            const bool spaceHeldEditor = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
-            const bool ctrlHeldEditor = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
-                                         glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+            const bool spaceHeldEditor = !uiWantsKeyboard && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+            const bool ctrlHeldEditor = !uiWantsKeyboard && (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                                         glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
             if (spaceHeldEditor) {
                 camera.Position += glm::vec3(0.0f, 1.0f, 0.0f) * camera.GetMoveSpeed() * kVerticalSpeedMultiplier * deltaTime;
             }
@@ -806,7 +825,7 @@ int main() {
 
         glm::vec3 viewerPosition = camera.Position;
 
-        const bool fHeld = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
+        const bool fHeld = !uiWantsKeyboard && glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
         if (playMode && fHeld && !fWasPressed) {
             if (!insideVehicle) {
                 glm::vec3 playerPos = characterController.GetPosition();
@@ -890,11 +909,11 @@ int main() {
                     currentRotation = glm::slerp(currentRotation, targetRotation, glm::min(kTurnSpeed * deltaTime, 1.0f));
                 }
 
-                bool spaceHeld = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+                bool spaceHeld = !uiWantsKeyboard && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
                 bool jumpEdge = spaceHeld && !spaceWasPressed;
                 spaceWasPressed = spaceHeld;
 
-                characterController.Sprinting = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+                characterController.Sprinting = !uiWantsKeyboard && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
                 characterController.Update(deltaTime, wishDir, jumpEdge);
 
                 {
@@ -1415,6 +1434,7 @@ int main() {
             editorUI.DrawInspector(scene);
             editorUI.DrawAssetBrowser(scene);
             editorUI.DrawPhysicsPanel(scene, physicsWorld);
+            editorUI.DrawScriptEditorPanel(scriptEngine);
 
             VehicleController* activeVehiclePtr = nullptr;
             if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity) && scene.Registry.all_of<VehicleComponent>(activeVehicleEntity)) {

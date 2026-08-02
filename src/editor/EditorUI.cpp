@@ -26,6 +26,10 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "../rendering/Material.h"
+#include "../scripting/ScriptEngine.h"
+#include <engine/HotReload.h>
+#include <fstream>
+#include <sstream>
 
 namespace {
 constexpr const char* kAssetPayloadType = "VA_ASSET_PATH";
@@ -715,6 +719,7 @@ void EditorUI::DrawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Window")) {
             ImGui::MenuItem("Scene Hierarchy", nullptr, &ShowSceneHierarchy);
+            ImGui::MenuItem("Script Editor", nullptr, &ShowScriptEditorPanel);
             ImGui::MenuItem("Inspector", nullptr, &ShowInspector);
             ImGui::MenuItem("Asset Browser", nullptr, &ShowAssetBrowser);
             ImGui::MenuItem("Physics Test", nullptr, &ShowPhysicsPanel);
@@ -727,6 +732,7 @@ void EditorUI::DrawMenuBar() {
             ImGui::Separator();
             ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
             ImGui::EndMenu();
+
         }
         ImGui::EndMainMenuBar();
     }
@@ -1645,4 +1651,150 @@ bool EditorUI::DrawSaveLoadPanel(std::string& outSlotName, bool& outIsSaveAction
 
     ImGui::End();
     return actionRequested;
+}
+
+namespace {
+int ScriptEditorResizeCallback(ImGuiInputTextCallbackData* data) {
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+        auto* str = static_cast<std::string*>(data->UserData);
+        str->resize(static_cast<size_t>(data->BufTextLen));
+        data->Buf = str->data();
+    }
+    return 0;
+}
+} // namespace
+
+void EditorUI::RefreshScriptFileList() {
+    m_scriptFiles.clear();
+
+    std::filesystem::path scriptsDir = m_projectRoot.empty()
+        ? std::filesystem::path("game/scripts")
+        : m_projectRoot / "game" / "scripts";
+
+    if (!std::filesystem::exists(scriptsDir)) {
+        std::filesystem::create_directories(scriptsDir);
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(scriptsDir)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".lua") {
+            m_scriptFiles.push_back(entry.path());
+        }
+    }
+
+    m_scriptFilesLoaded = true;
+}
+
+void EditorUI::LoadScriptIntoEditor(const std::filesystem::path& scriptPath) {
+    std::ifstream file(scriptPath);
+    if (!file.is_open()) {
+        m_scriptStatusMessage = "Failed to open " + scriptPath.string();
+        return;
+    }
+
+    std::ostringstream contents;
+    contents << file.rdbuf();
+
+    m_selectedScriptPath = scriptPath;
+    m_scriptEditBuffer = contents.str();
+    m_scriptBufferDirty = false;
+    m_scriptStatusMessage = "Loaded " + scriptPath.filename().string();
+}
+
+void EditorUI::SaveCurrentScript(ScriptEngine& scriptEngine) {
+    if (m_selectedScriptPath.empty()) {
+        m_scriptStatusMessage = "No script selected";
+        return;
+    }
+
+    std::ofstream file(m_selectedScriptPath, std::ios::trunc);
+    if (!file.is_open()) {
+        m_scriptStatusMessage = "Failed to save " + m_selectedScriptPath.string();
+        return;
+    }
+    file << m_scriptEditBuffer;
+    file.close();
+
+    m_scriptBufferDirty = false;
+
+    const std::string pathStr = m_selectedScriptPath.string();
+
+    // Run it immediately — ScriptEngine::RunScript sets its own internal
+    // m_currentScriptPath/m_lastWriteTime, which its existing
+    // CheckForReload(float) already polls every frame from the main loop.
+    scriptEngine.RunScript(pathStr);
+
+    // Also register with the generic HotReloadManager exactly once per
+    // path, so external edits to this same file (outside this panel)
+    // trigger a re-run too, instead of only in-editor saves doing so.
+    if (!m_watchedScriptPaths.contains(pathStr)) {
+        GetHotReloadManager().Watch(pathStr, [&scriptEngine, pathStr](const std::string&) {
+            scriptEngine.RunScript(pathStr);
+        });
+        m_watchedScriptPaths.insert(pathStr);
+    }
+
+    m_scriptStatusMessage = "Saved & ran " + m_selectedScriptPath.filename().string();
+}
+
+void EditorUI::DrawScriptEditorPanel(ScriptEngine& scriptEngine) {
+    if (!ShowScriptEditorPanel) return;
+
+    if (!m_scriptFilesLoaded) {
+        RefreshScriptFileList();
+    }
+
+    ImGui::Begin("Script Editor", &ShowScriptEditorPanel);
+
+    ImGui::BeginChild("ScriptFileList", ImVec2(180.0f, 0.0f), true);
+    if (ImGui::Button("Refresh", ImVec2(-1, 0))) {
+        RefreshScriptFileList();
+    }
+    ImGui::Separator();
+    for (const auto& scriptPath : m_scriptFiles) {
+        bool isSelected = (scriptPath == m_selectedScriptPath);
+        std::string label = scriptPath.filename().string();
+        if (ImGui::Selectable(label.c_str(), isSelected)) {
+            if (m_scriptBufferDirty) {
+                m_scriptStatusMessage = "Unsaved changes — save or discard before switching files";
+            } else {
+                LoadScriptIntoEditor(scriptPath);
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    if (m_selectedScriptPath.empty()) {
+        ImGui::TextUnformatted("Select a script on the left to begin editing.");
+    } else {
+        ImGui::Text("Editing: %s%s", m_selectedScriptPath.filename().string().c_str(),
+                    m_scriptBufferDirty ? " *" : "");
+
+        if (ImGui::Button("Save & Run")) {
+            SaveCurrentScript(scriptEngine);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard Changes")) {
+            LoadScriptIntoEditor(m_selectedScriptPath);
+        }
+
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackResize;
+        ImVec2 editorSize = ImVec2(-1.0f, ImGui::GetContentRegionAvail().y - 24.0f);
+
+        if (ImGui::InputTextMultiline("##ScriptEditorBuffer", m_scriptEditBuffer.data(),
+                                       m_scriptEditBuffer.capacity() + 1, editorSize, flags,
+                                       ScriptEditorResizeCallback, &m_scriptEditBuffer)) {
+            m_scriptBufferDirty = true;
+        }
+    }
+    ImGui::EndGroup();
+
+    if (!m_scriptStatusMessage.empty()) {
+        ImGui::Separator();
+        ImGui::TextUnformatted(m_scriptStatusMessage.c_str());
+    }
+
+    ImGui::End();
 }

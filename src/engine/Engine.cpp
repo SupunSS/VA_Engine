@@ -207,9 +207,12 @@ EntityId EngineImpl::SpawnEntity(const std::string& prefabName, const Vec3& posi
         Log("ERROR: SpawnEntity called before scene connected");
         return 0;
     }
-    EntityId id = GetScene().CreateEntity();
-    SetPosition(id, position);
-    return id;
+
+    ::PhysicsWorld* realPhysics = m_physicsAdapter ? m_physicsAdapter->GetRealPhysics() : nullptr;
+    ::ScriptEngine* realScript = m_scriptAdapter ? m_scriptAdapter->GetRealScriptEngine() : nullptr;
+
+    return GetPrefabManager().Instantiate(
+        prefabName, position, m_sceneAdapter->GetRealScene(), realPhysics, realScript);
 }
 
 void EngineImpl::DestroyEntity(EntityId entityId) {
