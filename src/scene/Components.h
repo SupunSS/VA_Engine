@@ -10,6 +10,7 @@
 #include <Jolt/Physics/Body/BodyID.h>
 #include "../rendering/Material.h"
 #include "../audio/AudioEngine.h"
+#include <string>
 
 // Every entity that exists in the world has this. Cheap by design —
 // static props (streetlights, trash cans) never touch anything beyond this.
@@ -115,6 +116,14 @@ enum class PhysicsShapeType {
 };
 
 struct PhysicsTestBody {};
+
+// Attaches a Lua script to this entity, run in its own isolated
+// environment (see ScriptEngine::AttachScript/CallEntityUpdates) — kept as
+// just a path here, not the actual sol::environment, so this header stays
+// free of sol types (Components.h is included almost everywhere).
+struct ScriptComponent {
+    std::string ScriptPath;
+};
 
 struct RigidBody {
     JPH::BodyID BodyId{};

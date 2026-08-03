@@ -4,6 +4,7 @@
 #include "../physics/PhysicsWorld.h"
 #include <cmath>
 #include <glm/gtx/norm.hpp>
+#include "../core/AssetPaths.h"
 
 ChunkManager::ChunkManager(float chunkSize, int loadRadius)
     : m_chunkSize(chunkSize), m_loadRadius(loadRadius), m_unloadRadius(loadRadius + 2) {}
@@ -17,7 +18,8 @@ ChunkManager::ChunkKey ChunkManager::WorldToChunk(const glm::vec3& position) con
 }
 
 std::string ChunkManager::GetChunkPath(int x, int z) const {
-    return "scenes/chunks/chunk_" + std::to_string(x) + "_" + std::to_string(z) + ".json";
+    return AssetPaths::Resolve(AssetPaths::Category::Scenes,
+        "chunks/chunk_" + std::to_string(x) + "_" + std::to_string(z) + ".json");
 }
 
 void ChunkManager::Update(const glm::vec3& viewerPosition, Scene& scene, PhysicsWorld& physicsWorld, float maxRenderDistance) {

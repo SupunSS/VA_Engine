@@ -30,6 +30,7 @@
 #include <engine/HotReload.h>
 #include <fstream>
 #include <sstream>
+#include "../core/AssetPaths.h"
 
 namespace {
 constexpr const char* kAssetPayloadType = "VA_ASSET_PATH";
@@ -732,9 +733,71 @@ void EditorUI::DrawMenuBar() {
             ImGui::Separator();
             ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
             ImGui::EndMenu();
-
         }
+
+        if (ImGui::BeginMenu("Workspace")) {
+            if (ImGui::MenuItem("Full (Engine Dev)", nullptr, m_currentWorkspace == Workspace::Full)) {
+                ApplyWorkspace(Workspace::Full);
+            }
+            if (ImGui::MenuItem("Scripter", nullptr, m_currentWorkspace == Workspace::Scripter)) {
+                ApplyWorkspace(Workspace::Scripter);
+            }
+            if (ImGui::MenuItem("Level Designer", nullptr, m_currentWorkspace == Workspace::LevelDesigner)) {
+                ApplyWorkspace(Workspace::LevelDesigner);
+            }
+            ImGui::EndMenu();
+        }
+
         ImGui::EndMainMenuBar();
+    }
+}
+
+void EditorUI::ApplyWorkspace(Workspace workspace) {
+    m_currentWorkspace = workspace;
+
+    switch (workspace) {
+        case Workspace::Full:
+            ShowSceneHierarchy = true;
+            ShowInspector = true;
+            ShowAssetBrowser = true;
+            ShowPhysicsPanel = true;
+            ShowVehiclePanel = true;
+            ShowViewportSettings = true;
+            ShowPlayerPanel = true;
+            ShowGizmoToolbar = true;
+            ShowCullingPanel = true;
+            ShowSaveLoadPanel = true;
+            ShowScriptEditorPanel = true;
+            break;
+
+        case Workspace::Scripter:
+            ShowSceneHierarchy = true;   // needed to pick an entity to test against
+            ShowInspector = true;        // see/tweak component values while testing a script
+            ShowAssetBrowser = false;
+            ShowPhysicsPanel = false;
+            ShowVehiclePanel = false;
+            ShowViewportSettings = false;
+            ShowPlayerPanel = true;      // Play/Stop, to actually run the game and watch scripts fire
+            ShowGizmoToolbar = false;
+            ShowCullingPanel = false;
+            ShowSaveLoadPanel = false;
+            ShowScriptEditorPanel = true;
+            ShowStatsOverlay = true;
+            break;
+
+        case Workspace::LevelDesigner:
+            ShowSceneHierarchy = true;
+            ShowInspector = true;
+            ShowAssetBrowser = true;     // placing models/prefabs is the core of this job
+            ShowPhysicsPanel = false;
+            ShowVehiclePanel = false;
+            ShowViewportSettings = true; // camera speed, grid toggle
+            ShowPlayerPanel = true;      // test-drive the level
+            ShowGizmoToolbar = true;     // move/rotate/scale placed objects
+            ShowCullingPanel = true;     // tune render distance while building
+            ShowSaveLoadPanel = true;
+            ShowScriptEditorPanel = false;
+            break;
     }
 }
 
@@ -800,7 +863,7 @@ void EditorUI::DrawSceneHierarchy(Scene& scene) {
     ImGui::End();
 }
 
-void EditorUI::DrawInspector(Scene& scene) {
+void EditorUI::DrawInspector(Scene& scene, ScriptEngine& scriptEngine) {
     if (!ShowInspector) return;
     ImGui::Begin("Inspector", &ShowInspector);
 
@@ -833,6 +896,63 @@ void EditorUI::DrawInspector(Scene& scene) {
         ImGui::Text("Material: None");
     }
 }
+
+        // --- Script attachment ------------------------------------------
+        ImGui::Separator();
+        ImGui::Text("Script");
+
+        if (!m_scriptFilesLoaded) {
+            RefreshScriptFileList();
+        }
+
+        const bool hasScript = scriptEngine.HasScript(SelectedEntity);
+        if (hasScript) {
+            std::string attachedPath = scriptEngine.GetAttachedScriptPath(SelectedEntity);
+            std::filesystem::path attachedFilename = std::filesystem::path(attachedPath).filename();
+            ImGui::Text("Attached: %s", attachedFilename.string().c_str());
+
+            if (ImGui::Button("Reload##EntityScript")) {
+                scriptEngine.AttachScript(SelectedEntity, attachedPath);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Remove##EntityScript")) {
+                scriptEngine.DetachScript(SelectedEntity);
+            }
+        } else {
+            ImGui::TextDisabled("No script attached");
+
+            if (m_scriptFiles.empty()) {
+                ImGui::TextDisabled("(no .lua files found — check the Script Editor panel)");
+            } else {
+                static int selectedScriptIndex = 0;
+                if (selectedScriptIndex >= static_cast<int>(m_scriptFiles.size())) {
+                    selectedScriptIndex = 0;
+                }
+
+                std::vector<std::string> names;
+                names.reserve(m_scriptFiles.size());
+                for (const auto& p : m_scriptFiles) {
+                    names.push_back(p.filename().string());
+                }
+
+                if (ImGui::BeginCombo("##AttachScriptCombo", names[selectedScriptIndex].c_str())) {
+                    for (int i = 0; i < static_cast<int>(names.size()); ++i) {
+                        const bool isSelected = (i == selectedScriptIndex);
+                        if (ImGui::Selectable(names[i].c_str(), isSelected)) {
+                            selectedScriptIndex = i;
+                        }
+                        if (isSelected) {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Attach##EntityScript")) {
+                    scriptEngine.AttachScript(SelectedEntity, m_scriptFiles[selectedScriptIndex].string());
+                }
+            }
+        }
     } else {
         ImGui::Text("No entity selected");
     }
@@ -1668,8 +1788,8 @@ void EditorUI::RefreshScriptFileList() {
     m_scriptFiles.clear();
 
     std::filesystem::path scriptsDir = m_projectRoot.empty()
-        ? std::filesystem::path("game/scripts")
-        : m_projectRoot / "game" / "scripts";
+        ? std::filesystem::path(AssetPaths::Root(AssetPaths::Category::Scripts))
+        : m_projectRoot / AssetPaths::Root(AssetPaths::Category::Scripts);
 
     if (!std::filesystem::exists(scriptsDir)) {
         std::filesystem::create_directories(scriptsDir);

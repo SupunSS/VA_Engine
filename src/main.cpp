@@ -48,6 +48,7 @@
 #include "scene/SaveSystem.h"
 #include <engine/public/EnginePublic.h>
 #include "engine/LuaBindings.h"
+#include "core/AssetPaths.h"
 
 namespace {
 struct WindowUserData {
@@ -204,7 +205,7 @@ entt::entity SpawnTestVehicle(Scene& scene, PhysicsWorld& physicsWorld, const gl
     auto& vehicleComp = scene.Registry.emplace<VehicleComponent>(vehicleEntity);
     vehicleComp.Controller = controller;
 
-    AudioClipId engineClip = AudioEngine::Get().LoadClip("audio/sfx/vehicle_engine_loop.wav");
+    AudioClipId engineClip = AudioEngine::Get().LoadClip(AssetPaths::Resolve(AssetPaths::Category::Audio, "sfx/vehicle_engine_loop.wav"));
     auto& engineAudio = scene.Registry.emplace<VehicleEngineAudio>(vehicleEntity);
     engineAudio.EngineLoopClip = engineClip;
     engineAudio.Handle = AudioEngine::Get().CreateSource3D(
@@ -294,6 +295,7 @@ int main() {
 
     EditorUI editorUI;
     editorUI.Initialize(window);
+    editorUI.ApplyWorkspace(Workspace::Full); // default on startup — devs switch via the Workspace menu
     HUD hud;
     if (!AudioEngine::Get().Initialize()) {
         Log::Info("AudioEngine failed to initialize — continuing without audio.");
@@ -312,12 +314,16 @@ int main() {
     double lastCursorX = 0.0;
     double lastCursorY = 0.0;
 
-    Shader triangleShader("shaders/triangle.vert", "shaders/triangle.frag");
-    Shader triangleInstancedShader("shaders/triangle_instanced.vert", "shaders/triangle.frag");
-
-    Shader bloomThresholdShader("shaders/sky.vert", "shaders/bloom_threshold.frag");
-    Shader bloomBlurShader("shaders/sky.vert", "shaders/bloom_blur.frag");
-    Shader bloomCompositeShader("shaders/sky.vert", "shaders/bloom_composite.frag");
+    Shader triangleShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.vert"),
+                       AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.frag"));
+    Shader triangleInstancedShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle_instanced.vert"),
+                                AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.frag"));
+    Shader bloomThresholdShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
+                             AssetPaths::Resolve(AssetPaths::Category::Shaders, "bloom_threshold.frag"));
+    Shader bloomBlurShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
+                        AssetPaths::Resolve(AssetPaths::Category::Shaders, "bloom_blur.frag"));
+    Shader bloomCompositeShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
+                             AssetPaths::Resolve(AssetPaths::Category::Shaders, "bloom_composite.frag"));
 
     GLuint fullscreenVAO = 0;
     glGenVertexArrays(1, &fullscreenVAO);
@@ -349,8 +355,8 @@ int main() {
     scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
 
     scene.Registry.emplace<MovementState>(playerEntity);
-    AudioClipId sfxFootstepWalk = AudioEngine::Get().LoadClip("audio/sfx/footstep_walk.wav");
-    AudioClipId sfxFootstepRun  = AudioEngine::Get().LoadClip("audio/sfx/footstep_run.wav");
+    AudioClipId sfxFootstepWalk = AudioEngine::Get().LoadClip(AssetPaths::Resolve(AssetPaths::Category::Audio, "sfx/footstep_walk.wav"));
+    AudioClipId sfxFootstepRun  = AudioEngine::Get().LoadClip(AssetPaths::Resolve(AssetPaths::Category::Audio, "sfx/footstep_run.wav"));
     auto& playerFootsteps = scene.Registry.emplace<FootstepAudio>(playerEntity);
     playerFootsteps.WalkStepClip = sfxFootstepWalk;
     playerFootsteps.RunStepClip  = sfxFootstepRun;
@@ -361,12 +367,12 @@ int main() {
     playerVisualTransform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
     playerVisualTransform.Scale = glm::vec3(0.01f, 0.01f, 0.01f);
 
-    auto playerModel = SceneLoader::GetOrLoadModel("models/player/player.fbx");
+    auto playerModel = SceneLoader::GetOrLoadModel("player/player.fbx");
     scene.Registry.emplace<MeshRenderer>(playerVisualEntity, playerModel, nullptr);
 
-    auto playerIdleAnim = playerModel->LoadAnimation("models/player/Idle.fbx");
-    auto playerWalkAnim = playerModel->LoadAnimation("models/player/Walking.fbx");
-    auto playerRunAnim  = playerModel->LoadAnimation("models/player/Running.fbx");
+    auto playerIdleAnim = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Idle.fbx"));
+    auto playerWalkAnim = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Walking.fbx"));
+    auto playerRunAnim  = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Running.fbx"));
 
     Animator playerAnimator;
     playerAnimator.PlayAnimation(playerIdleAnim);
@@ -402,7 +408,7 @@ int main() {
     // and before any script that references the `Engine` global runs.
     RegisterLuaBindings(scriptEngine.GetLuaState(), engine);
 
-    scriptEngine.RunScript("scripts/test.lua");
+    scriptEngine.RunScript(AssetPaths::Resolve(AssetPaths::Category::Scripts, "test.lua"));
 
     GridRenderer gridRenderer;
     Skybox skybox;
@@ -430,7 +436,7 @@ int main() {
         auto ambientEntity = scene.CreateEntity();
         scene.Registry.get<Transform>(ambientEntity).Position = kPlayerSpawnPosition;
 
-        AudioClipId sfxAmbientCity = AudioEngine::Get().LoadClip("src/audio/ambient/city_loop.mp3");
+        AudioClipId sfxAmbientCity = AudioEngine::Get().LoadClip(AssetPaths::Resolve(AssetPaths::Category::Audio, "ambient/city_loop.mp3"));
         auto& ambientSource = scene.Registry.emplace<AudioSource>(ambientEntity);
         ambientSource.Clip = sfxAmbientCity;
         ambientSource.Loop = true;
@@ -697,7 +703,7 @@ int main() {
         }
     });
 
-    CityLayoutConfig::LoadFromFile("config/city_layout.json");
+    CityLayoutConfig::LoadFromFile(AssetPaths::Resolve(AssetPaths::Category::Config, "city_layout.json"));
 
     chunkManager.Update(camera.Position, scene, physicsWorld, maxRenderDistance);
 
@@ -1133,6 +1139,8 @@ int main() {
 
         scriptEngine.CallUpdate(deltaTime);
         scriptEngine.CheckForReload(deltaTime);
+        scriptEngine.CallEntityUpdates(deltaTime);
+
         PedestrianSystem::Update(scene, deltaTime, viewerPosition, pedestrianSimulationDistance);
         PedestrianSpawnSystem::Update(scene, viewerPosition, deltaTime, pedestrianSpawnConfig);
 
@@ -1431,7 +1439,7 @@ int main() {
 
             editorUI.DrawMenuBar();
             editorUI.DrawSceneHierarchy(scene);
-            editorUI.DrawInspector(scene);
+            editorUI.DrawInspector(scene, scriptEngine);
             editorUI.DrawAssetBrowser(scene);
             editorUI.DrawPhysicsPanel(scene, physicsWorld);
             editorUI.DrawScriptEditorPanel(scriptEngine);

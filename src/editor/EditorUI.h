@@ -26,6 +26,12 @@ enum class GizmoOperation {
     Scale
 };
 
+enum class Workspace {
+    Full,
+    Scripter,
+    LevelDesigner
+};
+
 class EditorUI {
 public:
     void Initialize(GLFWwindow* window);
@@ -41,7 +47,7 @@ public:
     void DrawMenuBar();
     void DrawStatsOverlay();
     void DrawSceneHierarchy(Scene& scene);
-    void DrawInspector(Scene& scene);
+    void DrawInspector(Scene& scene, ScriptEngine& scriptEngine);
     void DrawAssetBrowser(Scene& scene);
     void DrawPhysicsPanel(Scene& scene, PhysicsWorld& physicsWorld);
     bool DrawVehiclePanel(Scene& scene, PhysicsWorld& physicsWorld, class VehicleController* activeVehicle,
@@ -84,6 +90,13 @@ public:
     void DrawScriptEditorPanel(ScriptEngine& scriptEngine);
 
     GizmoOperation CurrentGizmoOperation = GizmoOperation::Translate;
+
+    // --- Workspaces ---------------------------------------------------
+    // Switches which panels are visible so each role only sees what's
+    // relevant to their job. Does not touch docking/window positions —
+    // just Show* visibility flags.
+    void ApplyWorkspace(Workspace workspace);
+    Workspace GetCurrentWorkspace() const { return m_currentWorkspace; }
 
     entt::entity SelectedEntity = entt::null;
 
@@ -162,4 +175,6 @@ private:
     bool m_scriptBufferDirty = false;
     std::string m_scriptStatusMessage;
     std::unordered_set<std::string> m_watchedScriptPaths; // avoid re-registering the same HotReload watch every save
+
+    Workspace m_currentWorkspace = Workspace::Full;
 };

@@ -1,5 +1,6 @@
 #pragma once
 #include "../scene/Scene.h"
+#include "../core/AssetPaths.h"
 #include <glm/glm.hpp>
 #include <string>
 
@@ -18,18 +19,19 @@
 namespace PedestrianSpawnSystem {
 
 struct Config {
-    int   TargetPopulation = 40;
-    float SpawnRadius = 40.0f;
-    float DespawnRadius = 70.0f;
-    float ChunkSize = 50.0f;
+int TargetPopulation = 40;
+float SpawnRadius = 40.0f;
+float DespawnRadius = 70.0f;
+float ChunkSize = 50.0f;
 
-    // Matches SceneLoader.cpp's previous per-chunk pedestrian spawn — same
-    // placeholder player skeleton/clips, now loaded once and shared across
-    // every spawned pedestrian instead of being re-fetched per chunk.
-    std::string ModelPath = "models/player/player.fbx";
-    std::string IdleAnimPath = "models/player/Idle.fbx";
-    std::string WalkAnimPath = "models/player/Walking.fbx";
-    glm::vec3 ModelScale{0.01f, 0.01f, 0.01f};
+// Matches SceneLoader.cpp's previous per-chunk pedestrian spawn — same
+// placeholder player skeleton/clips, now loaded once and shared across
+// every spawned pedestrian instead of being re-fetched per chunk.
+std::string ModelPath = AssetPaths::Resolve(AssetPaths::Category::Models, "player/player.fbx");
+std::string IdleAnimPath = AssetPaths::Resolve(AssetPaths::Category::Models, "player/Idle.fbx");
+std::string WalkAnimPath = AssetPaths::Resolve(AssetPaths::Category::Models, "player/Walking.fbx");
+glm::vec3 ModelScale{0.01f, 0.01f, 0.01f};
+
 };
 
 // Call once per frame; internally throttles the actual spawn/despawn work

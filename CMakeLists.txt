@@ -18,6 +18,7 @@ find_package(Lua REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
 find_package(imguizmo CONFIG REQUIRED)
+find_package(yaml-cpp CONFIG REQUIRED)
 
 # ============================================================================
 # ENGINE CORE LIBRARY
@@ -71,6 +72,7 @@ add_library(va_engine_core STATIC
     src/engine/HotReload.cpp
     src/engine/LuaBindings.cpp
     src/engine/Prefab.cpp
+    src/core/AssetPaths.cpp
 )
 
 target_include_directories(va_engine_core PUBLIC
@@ -88,6 +90,7 @@ target_link_libraries(va_engine_core PUBLIC
     nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} imgui::imgui
     Jolt::Jolt imguizmo::imguizmo winmm
 )
+target_link_libraries(va_engine_core PRIVATE yaml-cpp::yaml-cpp)
 
 # ============================================================================
 # ENGINE DEV SANDBOX EXECUTABLE

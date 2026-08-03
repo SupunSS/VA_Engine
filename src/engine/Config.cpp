@@ -3,6 +3,7 @@
  */
 
 #include "Config.h"
+#include <yaml-cpp/yaml.h>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -10,23 +11,60 @@
 
 namespace fs = std::filesystem;
 
+namespace {
+
+// Converts a parsed yaml-cpp node tree into an equivalent nlohmann::json
+// tree, so the rest of ConfigManager (Get<T>, FindValue, dot-path lookup)
+// can stay completely unaware that the source file was YAML rather than
+// JSON. Scalars are tried in order int -> double -> bool -> string, since
+// yaml-cpp scalars are untyped text and this is the same coercion order a
+// human would expect ("500" becomes an int, "3.14" a double, "true" a
+// bool, anything else a string).
+json YamlNodeToJson(const YAML::Node& node) {
+    if (!node || node.IsNull()) {
+        return nullptr;
+    }
+
+    if (node.IsScalar()) {
+        try { return node.as<long long>(); } catch (...) {}
+        try { return node.as<double>(); } catch (...) {}
+        try { return node.as<bool>(); } catch (...) {}
+        return node.as<std::string>();
+    }
+
+    if (node.IsSequence()) {
+        json array = json::array();
+        for (const auto& child : node) {
+            array.push_back(YamlNodeToJson(child));
+        }
+        return array;
+    }
+
+    if (node.IsMap()) {
+        json object = json::object();
+        for (const auto& entry : node) {
+            object[entry.first.as<std::string>()] = YamlNodeToJson(entry.second);
+        }
+        return object;
+    }
+
+    return nullptr;
+}
+
+} // namespace
+
 void ConfigManager::LoadFromFile(const std::string& filePath) {
     m_filePath = filePath;
 
     try {
-        std::ifstream file(filePath);
-        if (!file.is_open()) {
-            std::cerr << "Config: Failed to open file: " << filePath << std::endl;
-            return;
-        }
-
-        file >> m_data;
+        YAML::Node root = YAML::LoadFile(filePath);
+        m_data = YamlNodeToJson(root);
         m_lastModifiedTime = GetFileModTime(filePath);
-        
+
         std::cout << "Config: Loaded from " << filePath << std::endl;
     }
     catch (const std::exception& e) {
-        std::cerr << "Config: Error parsing file: " << e.what() << std::endl;
+        std::cerr << "Config: Error parsing file " << filePath << ": " << e.what() << std::endl;
     }
 }
 

@@ -10,6 +10,7 @@
 #include <engine/public/EnginePublic.h>
 #include "GameLogic.h"
 #include <iostream>
+#include "core/AssetPaths.h"
 
 using namespace VAPublic;
 
@@ -31,7 +32,7 @@ void InitializeGame(IEngine* engine) {
     g_gameLogic = new GameLogic(engine);
     
     // Load the initial scene
-    g_engine->LoadScene("scenes/test_scene.json");
+    g_engine->LoadScene(AssetPaths::Resolve(AssetPaths::Category::Scenes, "test_scene.json"));
     
     // Subscribe to events
     g_engine->GetEvents().Subscribe(Events::OnGameStarted, [](const void*) {

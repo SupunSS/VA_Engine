@@ -12,6 +12,7 @@
 #include "CityLayout.h"
 #include "../rendering/Animator.h"
 #include "ChunkDeltaStore.h"
+#include "../core/AssetPaths.h"
 
 std::unordered_map<std::string, std::shared_ptr<Model>> SceneLoader::s_modelCache;
 
@@ -99,7 +100,7 @@ void CreateFlatBox(Scene& scene, const glm::vec3& center, const glm::vec3& halfE
     auto& transform = scene.Registry.get<Transform>(entity);
     transform.Position = center;
     transform.Scale = halfExtents; // cube.obj spans -1..1, so Scale == halfExtents directly
-    scene.Registry.emplace<MeshRenderer>(entity, SceneLoader::GetOrLoadModel("models/cube.obj"), std::move(material));
+    scene.Registry.emplace<MeshRenderer>(entity, SceneLoader::GetOrLoadModel("cube.obj"), std::move(material));
     scene.Registry.emplace<ChunkId>(entity, ChunkId{ chunkX, chunkZ });
 }
 
@@ -179,7 +180,7 @@ void GenerateCityBlock(Scene& scene, PhysicsWorld& physicsWorld, int chunkX, int
             transform.Position = center;
             transform.Scale = halfExtents;
 
-            scene.Registry.emplace<MeshRenderer>(entity, SceneLoader::GetOrLoadModel("models/cube.obj"), GetBuildingMaterial(colorBucket));
+            scene.Registry.emplace<MeshRenderer>(entity, SceneLoader::GetOrLoadModel("cube.obj"), GetBuildingMaterial(colorBucket));
 
             const auto bodyId = physicsWorld.CreateBoxBody(center, halfExtents, /*isStatic=*/true);
             scene.Registry.emplace<RigidBody>(entity, bodyId, true, PhysicsShapeType::Box, halfExtents, 0.5f);
@@ -203,9 +204,9 @@ void SpawnPedestrians(Scene& scene, int chunkX, int chunkZ, float chunkSize) {
 
     // Reusing the player skeleton/clips as a placeholder NPC — swap in a
     // dedicated pedestrian model+animations once one exists.
-    auto pedestrianModel = SceneLoader::GetOrLoadModel("models/player/player.fbx");
-    auto idleAnim = pedestrianModel->LoadAnimation("models/player/Idle.fbx");
-    auto walkAnim = pedestrianModel->LoadAnimation("models/player/Walking.fbx");
+    auto pedestrianModel = SceneLoader::GetOrLoadModel("player/player.fbx");
+    auto idleAnim = pedestrianModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Idle.fbx"));
+    auto walkAnim = pedestrianModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Walking.fbx"));
 
     const int waypointCount = static_cast<int>(waypoints.size());
     for (int i = 0; i < config.PedestriansPerChunk; ++i) {
@@ -256,13 +257,21 @@ void SceneLoader::RecordEntityDestructionDelta(Scene& scene, entt::entity entity
 }
 
 std::shared_ptr<Model> SceneLoader::GetOrLoadModel(const std::string& path) {
-    auto it = s_modelCache.find(path);
+    // Resolved here, once, so every caller (SceneLoader internally,
+    // PedestrianSpawnSystem, EditorUI's asset browser, main.cpp) benefits
+    // automatically — no need to wrap every call site individually.
+    // Already-resolved/absolute paths (e.g. from JSON scene files that
+    // already say "models/x.obj", or full paths from the editor) pass
+    // through unchanged.
+    const std::string resolvedPath = AssetPaths::Resolve(AssetPaths::Category::Models, path);
+
+    auto it = s_modelCache.find(resolvedPath);
     if (it != s_modelCache.end()) {
         return it->second;
     }
 
-    auto model = std::make_shared<Model>(path);
-    s_modelCache[path] = model;
+    auto model = std::make_shared<Model>(resolvedPath);
+    s_modelCache[resolvedPath] = model;
     return model;
 }
 
@@ -314,7 +323,7 @@ void SceneLoader::LoadChunk(const std::string& path, Scene& scene, PhysicsWorld&
         groundTransform.Position = center;
         groundTransform.Scale = halfExtents;
 
-        auto groundModel = GetOrLoadModel("models/cube.obj");
+        auto groundModel = GetOrLoadModel("cube.obj");
         scene.Registry.emplace<MeshRenderer>(groundEntity, groundModel, GetGroundMaterial());
 
         const auto groundBodyId = physicsWorld.CreateBoxBody(center, halfExtents, /*isStatic=*/true);

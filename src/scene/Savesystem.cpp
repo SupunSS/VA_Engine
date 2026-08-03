@@ -6,9 +6,12 @@
 #include <filesystem>
 #include <algorithm>
 #include <cctype>
+#include "../core/AssetPaths.h"
 
 namespace {
-constexpr const char* kSavesDir = "saves";
+std::string SavesDir() {
+    return AssetPaths::Root(AssetPaths::Category::Saves);
+}
 
 nlohmann::json Vec3ToJson(const glm::vec3& v) { return { v.x, v.y, v.z }; }
 nlohmann::json QuatToJson(const glm::quat& q) { return { q.w, q.x, q.y, q.z }; }
@@ -45,12 +48,12 @@ std::string SaveSystem::SanitizeSlotName(const std::string& slotName) {
 }
 
 std::string SaveSystem::GetSaveFilePath(const std::string& slotName) {
-    return std::string(kSavesDir) + "/" + SanitizeSlotName(slotName) + ".json";
+    return SavesDir() + "/" + SanitizeSlotName(slotName) + ".json";
 }
 
 std::vector<std::string> SaveSystem::ListSaveSlots() {
     std::vector<std::string> slots;
-    std::filesystem::path dir(kSavesDir);
+    std::filesystem::path dir(SavesDir());
     if (!std::filesystem::exists(dir)) {
         return slots;
     }
@@ -81,7 +84,7 @@ bool SaveSystem::WriteSaveFile(const std::string& slotName, const SaveGameData& 
         return false;
     }
 
-    std::filesystem::create_directories(kSavesDir);
+    std::filesystem::create_directories(SavesDir());
 
     nlohmann::json out;
 
