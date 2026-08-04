@@ -11,6 +11,7 @@
 #include "../rendering/Material.h"
 #include "../audio/AudioEngine.h"
 #include <string>
+#include "../rendering/AnimationStateMachine.h"
 
 // Every entity that exists in the world has this. Cheap by design —
 // static props (streetlights, trash cans) never touch anything beyond this.
@@ -89,8 +90,15 @@ struct AnimatorComponent {
     std::shared_ptr<Animator> AnimatorPtr;
     std::shared_ptr<Animation> IdleAnim;
     std::shared_ptr<Animation> WalkAnim;
+    
 
-    enum class State { Idle, Walk } CurrentState = State::Idle;
+    // Owns this entity's transition logic (Idle <-> Walk based on the
+    // "IsMoving" parameter). Constructed once, lazily, the first time
+    // PedestrianSystem needs it — see EnsureStateMachine() in
+    // PedestrianSystem.cpp — since Components.h shouldn't need to know
+    // how to wire up states/transitions itself.
+    std::shared_ptr<AnimationStateMachine> StateMachine;
+    std::shared_ptr<Model> SourceModel; // needed so PedestrianSystem can (re)load animation state machine JSON via LoadAnimation()
 };
 
 // --- HUD-backing data ----------------------------------------------------

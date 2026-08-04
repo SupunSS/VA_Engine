@@ -18,16 +18,17 @@ struct CategoryDefault {
 // the project root (confirmed against EditorUI's kAssetFolders, and every
 // hardcoded path previously found in main.cpp/SceneLoader/SaveSystem) —
 // NOT nested under a separate "assets/" parent.
-constexpr std::array<CategoryDefault, 9> kDefaults = {{
-    { Category::Models,   "paths.models",   "models" },
-    { Category::Textures, "paths.textures", "textures" },
-    { Category::Audio,    "paths.audio",    "audio" },
-    { Category::Scripts,  "paths.scripts",  "game/scripts" },
-    { Category::Prefabs,  "paths.prefabs",  "prefabs" },
-    { Category::Scenes,   "paths.scenes",   "scenes" },
-    { Category::Shaders,  "paths.shaders",  "shaders" },
-    { Category::Config,   "paths.config",   "config" },
-    { Category::Saves,    "paths.saves",    "saves" },
+constexpr std::array<CategoryDefault, 10> kDefaults = {{
+    { Category::Models,            "paths.models",            "models" },
+    { Category::Textures,          "paths.textures",          "textures" },
+    { Category::Audio,             "paths.audio",             "audio" },
+    { Category::Scripts,           "paths.scripts",           "game/scripts" },
+    { Category::Prefabs,           "paths.prefabs",           "prefabs" },
+    { Category::Scenes,            "paths.scenes",            "scenes" },
+    { Category::Shaders,           "paths.shaders",           "shaders" },
+    { Category::Config,            "paths.config",            "config" },
+    { Category::Saves,             "paths.saves",             "saves" },
+    { Category::AnimStateMachines, "paths.animStateMachines", "assets/anim_state_machines" },
 }};
 
 const CategoryDefault& Lookup(Category category) {

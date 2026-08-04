@@ -49,6 +49,8 @@
 #include <engine/public/EnginePublic.h>
 #include "engine/LuaBindings.h"
 #include "core/AssetPaths.h"
+#include "rendering/AnimationStateMachine.h"
+#include "rendering/AnimationStateMachineLoader.h"
 
 namespace {
 struct WindowUserData {
@@ -377,8 +379,9 @@ int main() {
     Animator playerAnimator;
     playerAnimator.PlayAnimation(playerIdleAnim);
 
-    enum class PlayerAnimState { Idle, Walk, Run };
-    PlayerAnimState currentPlayerAnimState = PlayerAnimState::Idle;
+    auto playerAnimStateMachinePtr = AnimationStateMachineLoader::LoadFromFile("player.json", *playerModel);
+    ENGINE_ASSERT(playerAnimStateMachinePtr != nullptr, "Failed to load player animation state machine");
+    AnimationStateMachine& playerAnimStateMachine = *playerAnimStateMachinePtr;
 
     CharacterController characterController(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
     const glm::vec3 kPlayerSpawnPosition(0.0f, 1.0f, 0.0f);
@@ -522,7 +525,7 @@ int main() {
         scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
         scene.Registry.get<Transform>(playerEntity).Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
-        currentPlayerAnimState = PlayerAnimState::Idle;
+        playerAnimStateMachine.SetInitialState("Idle");
         playerAnimator.PlayAnimation(playerIdleAnim);
 
         camera.Position = kInitialCameraPosition;
@@ -928,18 +931,9 @@ int main() {
                     moveState.IsRunning = characterController.Sprinting;
                 }
 
-                PlayerAnimState desiredAnimState = PlayerAnimState::Idle;
-                if (glm::length(wishDir) > 0.001f) {
-                    desiredAnimState = characterController.Sprinting ? PlayerAnimState::Run : PlayerAnimState::Walk;
-                }
-                if (desiredAnimState != currentPlayerAnimState) {
-                    currentPlayerAnimState = desiredAnimState;
-                    switch (currentPlayerAnimState) {
-                        case PlayerAnimState::Idle: playerAnimator.PlayAnimation(playerIdleAnim); break;
-                        case PlayerAnimState::Walk: playerAnimator.PlayAnimation(playerWalkAnim); break;
-                        case PlayerAnimState::Run:  playerAnimator.PlayAnimation(playerRunAnim);  break;
-                    }
-                }
+                playerAnimStateMachine.SetBool("IsMoving", glm::length(wishDir) > 0.001f);
+                playerAnimStateMachine.SetBool("IsRunning", characterController.Sprinting);
+                playerAnimStateMachine.Update(playerAnimator);
 
                 glm::vec3 playerPos = characterController.GetPosition();
                 scene.Registry.get<Transform>(playerEntity).Position = playerPos;

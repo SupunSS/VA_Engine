@@ -233,6 +233,7 @@ void SpawnPedestrians(Scene& scene, int chunkX, int chunkZ, float chunkSize) {
         animComp.AnimatorPtr = std::make_shared<Animator>();
         animComp.IdleAnim = idleAnim;
         animComp.WalkAnim = walkAnim;
+        animComp.SourceModel = pedestrianModel;
         animComp.AnimatorPtr->PlayAnimation(idleAnim);
     }
 }

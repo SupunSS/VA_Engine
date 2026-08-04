@@ -102,7 +102,7 @@ void SpawnOnePedestrian(Scene& scene, const glm::vec3& viewerPosition, const Con
     animComp.AnimatorPtr = std::make_shared<Animator>();
     animComp.IdleAnim = assets.IdleAnim;
     animComp.WalkAnim = assets.WalkAnim;
-    animComp.CurrentState = AnimatorComponent::State::Idle;
+    animComp.SourceModel = assets.Model;
     // Play idle immediately at spawn — without this, the pedestrian's
     // Animator has no active animation until PedestrianSystem::Update
     // first switches it, which is exactly what produced the T-pose you

@@ -1,8 +1,11 @@
 #include "PedestrianSystem.h"
 #include "../scene/Components.h"
 #include "../rendering/Animator.h"
+#include "../rendering/AnimationStateMachine.h"
 #include <glm/gtc/quaternion.hpp>
 #include <cmath>
+#include "../rendering/AnimationStateMachineLoader.h"
+#include "../core/Log.h"
 
 namespace PedestrianSystem {
 
@@ -10,6 +13,21 @@ namespace {
 constexpr float kWaitDurationSeconds = 2.0f; // pause at each waypoint before moving on
 constexpr float kArrivalRadius = 0.3f;       // "close enough" distance to count as arrived
 constexpr float kTurnSpeed = 8.0f;           // slerp rate facing the walk direction
+constexpr float kAnimBlendDuration = 0.25f;
+
+// Built once per entity, the first time it's needed — every pedestrian gets
+// an identical Idle<->Walk machine, so this is just wiring, not per-entity
+// authoring. If a future pedestrian type needs different states/transitions,
+// that's the point where this stops being one shared shape and becomes
+// data-driven per-prefab instead (see the planned JSON loader).
+void EnsureStateMachine(AnimatorComponent& animComp, Model& pedestrianModel) {
+    if (animComp.StateMachine) return;
+
+    animComp.StateMachine = AnimationStateMachineLoader::LoadFromFile("pedestrian.json", pedestrianModel);
+    if (!animComp.StateMachine) {
+        Log::Error("PedestrianSystem: failed to load pedestrian.json — this pedestrian will have no animation transitions");
+    }
+}
 }
 
 void Update(Scene& scene, float deltaTime, const glm::vec3& viewerPosition, float simulationRadius) {
@@ -34,11 +52,15 @@ void Update(Scene& scene, float deltaTime, const glm::vec3& viewerPosition, floa
         auto& ai = view.get<PedestrianAI>(entity);
         auto& animComp = view.get<AnimatorComponent>(entity);
 
+        if (animComp.SourceModel) {
+            EnsureStateMachine(animComp, *animComp.SourceModel);
+        }
+
         if (ai.PathWaypoints.empty()) {
             continue;
         }
 
-        AnimatorComponent::State desiredState = AnimatorComponent::State::Idle;
+        bool isMoving = false;
 
         if (ai.WaitTimer > 0.0f) {
             ai.WaitTimer -= deltaTime;
@@ -52,7 +74,7 @@ void Update(Scene& scene, float deltaTime, const glm::vec3& viewerPosition, floa
                 ai.WaitTimer = kWaitDurationSeconds;
                 ai.CurrentWaypointIndex = (ai.CurrentWaypointIndex + 1) % static_cast<int>(ai.PathWaypoints.size());
             } else {
-                desiredState = AnimatorComponent::State::Walk;
+                isMoving = true;
 
                 const glm::vec3 direction = toTarget / distance;
                 transform.Position += direction * ai.MoveSpeed * deltaTime;
@@ -64,11 +86,10 @@ void Update(Scene& scene, float deltaTime, const glm::vec3& viewerPosition, floa
             }
         }
 
-        if (desiredState != animComp.CurrentState) {
-            animComp.CurrentState = desiredState;
+        if (animComp.StateMachine) {
+            animComp.StateMachine->SetBool("IsMoving", isMoving);
             if (animComp.AnimatorPtr) {
-                animComp.AnimatorPtr->PlayAnimation(
-                    desiredState == AnimatorComponent::State::Walk ? animComp.WalkAnim : animComp.IdleAnim);
+                animComp.StateMachine->Update(*animComp.AnimatorPtr);
             }
         }
 

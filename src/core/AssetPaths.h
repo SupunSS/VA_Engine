@@ -23,7 +23,8 @@ enum class Category {
     Scenes,
     Shaders,
     Config,
-    Saves
+    Saves,
+    AnimStateMachines
 };
 
 // Loads paths.* from config/engine.yaml (via the global ConfigManager) on

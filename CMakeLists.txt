@@ -73,6 +73,8 @@ add_library(va_engine_core STATIC
     src/engine/LuaBindings.cpp
     src/engine/Prefab.cpp
     src/core/AssetPaths.cpp
+    src/rendering/AnimationStateMachine.cpp
+    src/rendering/AnimationStateMachineLoader.cpp
 )
 
 target_include_directories(va_engine_core PUBLIC

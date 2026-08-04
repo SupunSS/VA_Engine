@@ -1,0 +1,25 @@
+{
+  "chunkDeltas": {},
+  "player": {
+    "activeVehicleIndex": -1,
+    "ammoCurrent": 0,
+    "ammoReserve": 0,
+    "health": 100.0,
+    "insideVehicle": false,
+    "maxHealth": 100.0,
+    "transform": {
+      "position": [
+        -45.56105041503906,
+        -4.513140083872713e-07,
+        -6.057506561279297
+      ],
+      "rotation": [
+        -0.039295490831136703,
+        0.0,
+        -0.9992276430130005,
+        0.0
+      ]
+    }
+  },
+  "vehicles": []
+}
