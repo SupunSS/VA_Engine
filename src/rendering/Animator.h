@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include "Animation.h"
+#include <functional>
 
 constexpr int MAX_BONES = 100;
 
@@ -28,6 +29,26 @@ public:
 
     bool IsBlending() const { return m_IsBlending; }
     std::shared_ptr<Animation> GetCurrentAnimation() const { return m_CurrentAnimation; }
+    float GetBlendElapsed() const { return m_BlendElapsed; }
+    float GetBlendDuration() const { return m_BlendDuration; }
+    // Called once per frame per event whose NormalizedTime was crossed
+    // during that frame's UpdateAnimation, for whichever clip is currently
+    // playing (blended-out previous clips during a crossfade do not fire
+    // events — only the current/target clip does). Set to nullptr to
+    // disable.
+    using EventCallback = std::function<void(const std::string&)>;
+    void SetEventCallback(EventCallback callback) { m_EventCallback = std::move(callback); }
+
+    // Editor preview support. While preview mode is on, UpdateAnimation()
+    // (the normal per-frame gameplay path) becomes a no-op, so the state
+    // machine's own Update(animator) calls each frame don't fight the
+    // editor's manual scrubbing. ScrubToNormalizedTime works regardless of
+    // preview mode, but is only meaningful to call repeatedly while preview
+    // mode is on — see EditorUI::DrawAnimatorTimeline.
+    void BeginPreview() { m_PreviewMode = true; }
+    void EndPreview() { m_PreviewMode = false; }
+    bool IsInPreviewMode() const { return m_PreviewMode; }
+    void ScrubToNormalizedTime(std::shared_ptr<Animation> animation, float normalizedTime);
 
 private:
     // Decomposes both matrices into translation/rotation/scale, lerps
@@ -44,4 +65,10 @@ private:
     float m_BlendDuration = 0.0f;
     float m_BlendElapsed = 0.0f;
     bool m_IsBlending = false;
+
+    void FireEventsInRange(float previousNormalizedTime, float currentNormalizedTime, bool looped);
+
+    EventCallback m_EventCallback;
+
+    bool m_PreviewMode = false;
 };

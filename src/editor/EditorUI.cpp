@@ -31,7 +31,11 @@
 #include <fstream>
 #include <sstream>
 #include "../core/AssetPaths.h"
-
+#include "../rendering/Animator.h"
+#include "../rendering/AnimationStateMachine.h"
+#include "../rendering/AnimationStateMachineLoader.h"
+#include "../rendering/Model.h"
+#include <functional>
 namespace {
 constexpr const char* kAssetPayloadType = "VA_ASSET_PATH";
 
@@ -729,7 +733,9 @@ void EditorUI::DrawMenuBar() {
             ImGui::MenuItem("Viewport Settings", nullptr, &ShowViewportSettings);
             ImGui::MenuItem("Gizmo Toolbar", nullptr, &ShowGizmoToolbar);
             ImGui::MenuItem("Culling", nullptr, &ShowCullingPanel);
+            ImGui::MenuItem("Culling Debug Overlay", nullptr, &ShowCullingDebugOverlay);
             ImGui::MenuItem("Save / Load", nullptr, &ShowSaveLoadPanel);
+            ImGui::MenuItem("Animation", nullptr, &ShowAnimationPanel);
             ImGui::Separator();
             ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
             ImGui::EndMenu();
@@ -744,6 +750,9 @@ void EditorUI::DrawMenuBar() {
             }
             if (ImGui::MenuItem("Level Designer", nullptr, m_currentWorkspace == Workspace::LevelDesigner)) {
                 ApplyWorkspace(Workspace::LevelDesigner);
+            }
+            if (ImGui::MenuItem("Animation", nullptr, m_currentWorkspace == Workspace::Animation)) {
+                ApplyWorkspace(Workspace::Animation);
             }
             ImGui::EndMenu();
         }
@@ -768,6 +777,7 @@ void EditorUI::ApplyWorkspace(Workspace workspace) {
             ShowCullingPanel = true;
             ShowSaveLoadPanel = true;
             ShowScriptEditorPanel = true;
+            ShowCullingDebugOverlay = true;
             break;
 
         case Workspace::Scripter:
@@ -783,6 +793,7 @@ void EditorUI::ApplyWorkspace(Workspace workspace) {
             ShowSaveLoadPanel = false;
             ShowScriptEditorPanel = true;
             ShowStatsOverlay = true;
+            ShowCullingDebugOverlay = false;
             break;
 
         case Workspace::LevelDesigner:
@@ -797,6 +808,28 @@ void EditorUI::ApplyWorkspace(Workspace workspace) {
             ShowCullingPanel = true;     // tune render distance while building
             ShowSaveLoadPanel = true;
             ShowScriptEditorPanel = false;
+            ShowCullingDebugOverlay = false;
+            break;
+        
+        case Workspace::Animation:
+            // Everything not needed to author/preview animations gets out
+            // of the way — physics/vehicle/culling debug tools are noise
+            // here, and the script editor competes for the same screen
+            // space the state graph needs.
+            ShowSceneHierarchy = true;    // pick which NPC/entity to inspect
+            ShowInspector = true;         // confirm AnimatorComponent is present on selection
+            ShowAssetBrowser = true;      // browse to .fbx clips / .json state machines
+            ShowPhysicsPanel = false;
+            ShowVehiclePanel = false;
+            ShowViewportSettings = true;  // camera speed while lining up a preview shot
+            ShowPlayerPanel = true;       // Play/Stop, to test transitions live
+            ShowGizmoToolbar = false;
+            ShowCullingPanel = false;
+            ShowSaveLoadPanel = false;
+            ShowScriptEditorPanel = false;
+            ShowAnimationPanel = true;    // read-only debug view alongside the full editor
+            ShowAnimatorEditor = true;    // the star of this workspace
+            ShowCullingDebugOverlay = false;
             break;
     }
 }
@@ -810,7 +843,7 @@ void EditorUI::DrawStatsOverlay() {
     ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_Always);
     ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f, 0.0f), ImVec2(320.0f, FLT_MAX));
 
-    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
+    const ImGuiWindowFlags flags =
         ImGuiWindowFlags_AlwaysAutoResize |
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoFocusOnAppearing |
@@ -1436,9 +1469,11 @@ void EditorUI::DrawCullingPanel(bool& freezeCullingFrustum, float& maxRenderDist
 void EditorUI::DrawCullingDebugOverlay(float cameraYaw, float cameraPitch, float cameraDepthToVehicle,
                                         float vehicleDistance, float vehicleRadius, bool vehicleWithinDistance,
                                         bool vehicleInsideFrustum, int visibleWheelCount) {
+    if (!ShowCullingDebugOverlay) return;
+
     ImGui::SetNextWindowBgAlpha(0.85f);
     ImGui::SetNextWindowPos(ImVec2(20.0f, 400.0f), ImGuiCond_FirstUseEver);
-    ImGui::Begin("##CullingDebug", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::Begin("Culling Debug", &ShowCullingDebugOverlay, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
     ImGui::Text("Camera Yaw: %.1f  Pitch: %.1f", cameraYaw, cameraPitch);
     ImGui::Separator();
     ImGui::Text("Vehicle distance: %.2f  radius: %.2f", vehicleDistance, vehicleRadius);
@@ -1456,8 +1491,8 @@ void EditorUI::DrawGizmoToolbar() {
     if (!ShowGizmoToolbar) return;
 
     ImGui::SetNextWindowPos(ImVec2(20.0f, 60.0f), ImGuiCond_FirstUseEver);
-    ImGui::Begin("##GizmoToolbar", &ShowGizmoToolbar,
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing);
+    ImGui::Begin("Gizmo Toolbar", &ShowGizmoToolbar,
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing);
 
     auto modeButton = [this](const char* label, GizmoOperation mode) {
         const bool active = CurrentGizmoOperation == mode;
@@ -1917,4 +1952,624 @@ void EditorUI::DrawScriptEditorPanel(ScriptEngine& scriptEngine) {
     }
 
     ImGui::End();
+}
+
+void EditorUI::DrawAnimationPanel(Scene& scene, AnimationStateMachine* playerStateMachine, Animator* playerAnimator) {
+    if (!ShowAnimationPanel) return;
+    ImGui::Begin("Animation", &ShowAnimationPanel);
+
+    auto drawMachineDebug = [](const char* label, AnimationStateMachine* machine, Animator* animator) {
+        ImGui::SeparatorText(label);
+        if (!machine || !animator) {
+            ImGui::TextDisabled("Not available");
+            return;
+        }
+
+        ImGui::Text("Current State: %s", machine->GetCurrentState().c_str());
+
+        if (animator->IsBlending()) {
+            const float duration = animator->GetBlendDuration();
+            const float progress = duration > 0.0f
+                ? std::clamp(animator->GetBlendElapsed() / duration, 0.0f, 1.0f)
+                : 1.0f;
+            ImGui::ProgressBar(progress, ImVec2(-1, 0), "Blending");
+        } else {
+            ImGui::TextDisabled("Not blending");
+        }
+
+        if (ImGui::TreeNode((std::string("Parameters##") + label).c_str())) {
+            for (const auto& [name, value] : machine->GetBoolParams()) {
+                ImGui::Text("%s (bool): %s", name.c_str(), value ? "true" : "false");
+            }
+            for (const auto& [name, value] : machine->GetFloatParams()) {
+                ImGui::Text("%s (float): %.2f", name.c_str(), value);
+            }
+            for (const auto& [name, value] : machine->GetIntParams()) {
+                ImGui::Text("%s (int): %d", name.c_str(), value);
+            }
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNode((std::string("States##") + label).c_str())) {
+            for (const auto& [name, stateDef] : machine->GetStates()) {
+                ImGui::BulletText("%s (blend in %.2fs)", name.c_str(), stateDef.BlendInDuration);
+            }
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNode((std::string("Transitions##") + label).c_str())) {
+            for (const auto& transition : machine->GetTransitions()) {
+                ImGui::BulletText("%s -> %s (%d condition%s)",
+                    transition.FromState.c_str(), transition.ToState.c_str(),
+                    static_cast<int>(transition.Conditions.size()),
+                    transition.Conditions.size() == 1 ? "" : "s");
+            }
+            ImGui::TreePop();
+        }
+    };
+
+    drawMachineDebug("Player", playerStateMachine, playerAnimator);
+
+    ImGui::Separator();
+
+    if (SelectedEntity != entt::null && scene.Registry.valid(SelectedEntity) &&
+        scene.Registry.all_of<AnimatorComponent>(SelectedEntity)) {
+        auto& animComp = scene.Registry.get<AnimatorComponent>(SelectedEntity);
+        drawMachineDebug("Selected Entity", animComp.StateMachine.get(), animComp.AnimatorPtr.get());
+    } else {
+        ImGui::SeparatorText("Selected Entity");
+        ImGui::TextDisabled("Select an entity with an AnimatorComponent to inspect it");
+    }
+
+    ImGui::End();
+}
+
+void EditorUI::DrawAnimatorEditorPanel(const std::vector<AnimatorEditTarget>& targets) {
+    if (!ShowAnimatorEditor) return;
+    ImGui::Begin("Animator Editor", &ShowAnimatorEditor);
+
+    if (targets.empty()) {
+        ImGui::TextDisabled("No animatable target available. Enter Play mode for the player, "
+                             "or select a scene entity with an AnimatorComponent.");
+        ImGui::End();
+        return;
+    }
+
+    if (ImGui::BeginTabBar("AnimatorEditorTargets")) {
+        for (const auto& target : targets) {
+            if (!target.Machine || !target.AnimatorPtr) continue;
+            if (ImGui::BeginTabItem(target.DisplayName.c_str())) {
+                DrawAnimatorTargetEditor(target);
+                ImGui::EndTabItem();
+            }
+        }
+        ImGui::EndTabBar();
+    }
+
+    ImGui::End();
+}
+
+void EditorUI::DrawAnimatorTargetEditor(const AnimatorEditTarget& target) {
+    AnimatorEditorTargetState& state = m_animatorEditorState[target.Key];
+    AnimationStateMachine& machine = *target.Machine;
+
+    const bool canSave = !machine.GetSourceFilePath().empty();
+    if (!canSave) ImGui::BeginDisabled();
+    if (ImGui::Button("Save")) {
+        AnimationStateMachineLoader::StateMachineLayout layout;
+        for (const auto& [name, pos] : state.NodePositions) {
+            layout.NodePositions[name] = { pos.x, pos.y };
+        }
+        state.StatusMessage = AnimationStateMachineLoader::SaveToFile(machine, machine.GetSourceFilePath(), &layout)
+            ? "Saved." : "Save failed - see log.";
+    }
+    if (!canSave) ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    if (ImGui::Button("Save As...")) {
+        std::strncpy(state.SaveAsPathBuffer, machine.GetSourceFilePath().c_str(), sizeof(state.SaveAsPathBuffer) - 1);
+        ImGui::OpenPopup("SaveAnimatorAsPopup");
+    }
+
+    if (ImGui::BeginPopup("SaveAnimatorAsPopup")) {
+        ImGui::InputText("Path", state.SaveAsPathBuffer, sizeof(state.SaveAsPathBuffer));
+        ImGui::TextDisabled("Path under the anim state machines folder, e.g. characters/player.animsm.json");
+        if (ImGui::Button("Save")) {
+            AnimationStateMachineLoader::StateMachineLayout layout;
+            for (const auto& [name, pos] : state.NodePositions) {
+                layout.NodePositions[name] = { pos.x, pos.y };
+            }
+            const std::string resolvedPath = AssetPaths::Resolve(AssetPaths::Category::AnimStateMachines, state.SaveAsPathBuffer);
+            if (AnimationStateMachineLoader::SaveToFile(machine, resolvedPath, &layout)) {
+                machine.SetSourceFilePath(resolvedPath);
+                state.StatusMessage = "Saved to " + resolvedPath;
+            } else {
+                state.StatusMessage = "Save failed - see log.";
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::SameLine();
+    ImGui::Checkbox("Preview Mode", &state.PreviewMode);
+    if (state.PreviewMode) {
+        target.AnimatorPtr->BeginPreview();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(playback frozen - scrub the timeline below)");
+    } else {
+        target.AnimatorPtr->EndPreview();
+    }
+
+    if (!state.StatusMessage.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", state.StatusMessage.c_str());
+    }
+
+    ImGui::Separator();
+
+    if (machine.GetStates().size() >= 2) {
+        if (ImGui::Button("+ Add Transition")) {
+            auto it = machine.GetStates().begin();
+            std::string from = it->first;
+            ++it;
+            std::string to = (it != machine.GetStates().end()) ? it->first : from;
+            machine.AddTransition(from, to, {});
+            state.SelectedTransitionIndex = static_cast<int>(machine.GetTransitions().size()) - 1;
+            state.SelectedState.clear();
+        }
+        ImGui::SameLine();
+    }
+    ImGui::TextDisabled("Right-click canvas: add state. Drag nodes to arrange. Click an arrow to edit it.");
+
+    DrawStateGraphCanvas(target, state);
+
+    ImGui::Separator();
+
+    if (!state.SelectedState.empty() && machine.GetStates().count(state.SelectedState)) {
+        DrawStateInspector(target, state);
+    } else if (state.SelectedTransitionIndex >= 0 &&
+               state.SelectedTransitionIndex < static_cast<int>(machine.GetTransitions().size())) {
+        DrawTransitionInspector(target, state);
+    } else {
+        ImGui::TextDisabled("Select a state or transition above to edit it.");
+    }
+
+    ImGui::Separator();
+
+    ImGui::Columns(2, nullptr, true);
+    DrawBoneTree(target, state);
+    ImGui::NextColumn();
+    DrawAnimatorTimeline(target, state);
+    ImGui::Columns(1);
+}
+
+void EditorUI::DrawStateGraphCanvas(const AnimatorEditTarget& target, AnimatorEditorTargetState& state) {
+    AnimationStateMachine& machine = *target.Machine;
+
+    ImGui::BeginChild("GraphCanvas", ImVec2(0, 300), true,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const ImVec2 canvasOrigin = ImGui::GetCursorScreenPos();
+    const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+    drawList->AddRectFilled(canvasOrigin, ImVec2(canvasOrigin.x + canvasSize.x, canvasOrigin.y + canvasSize.y),
+                             IM_COL32(28, 28, 32, 255));
+
+    int autoIndex = 0;
+    for (const auto& [name, def] : machine.GetStates()) {
+        if (state.NodePositions.find(name) == state.NodePositions.end()) {
+            const float col = static_cast<float>(autoIndex % 4);
+            const float row = static_cast<float>(autoIndex / 4);
+            state.NodePositions[name] = glm::vec2(40.0f + col * 190.0f, 30.0f + row * 100.0f);
+        }
+        ++autoIndex;
+    }
+
+    const ImVec2 nodeSize(160.0f, 60.0f);
+    auto nodeTopLeft = [&](const std::string& name) {
+        const glm::vec2 p = state.NodePositions[name] + state.PanOffset;
+        return ImVec2(canvasOrigin.x + p.x, canvasOrigin.y + p.y);
+    };
+
+    // Background catch-all first, so nodes/transitions added after it take
+    // input priority wherever they overlap.
+    ImGui::SetCursorScreenPos(canvasOrigin);
+    ImGui::InvisibleButton("GraphCanvasBackground", canvasSize,
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        const ImVec2 delta = ImGui::GetIO().MouseDelta;
+        state.PanOffset.x += delta.x;
+        state.PanOffset.y += delta.y;
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        state.PendingNewStatePos = glm::vec2(mouse.x - canvasOrigin.x, mouse.y - canvasOrigin.y) - state.PanOffset;
+        state.NewStateName[0] = '\0';
+        state.NewStateClipPath[0] = '\0';
+        state.NewStateBlendIn = 0.2f;
+        ImGui::OpenPopup("AddAnimatorStatePopup");
+    }
+
+    if (ImGui::BeginPopup("AddAnimatorStatePopup")) {
+        ImGui::TextUnformatted("New State");
+        ImGui::InputText("Name", state.NewStateName, sizeof(state.NewStateName));
+        ImGui::InputText("Clip Path", state.NewStateClipPath, sizeof(state.NewStateClipPath));
+        ImGui::SliderFloat("Blend In", &state.NewStateBlendIn, 0.0f, 2.0f, "%.2fs");
+
+        const bool nameEmpty = state.NewStateName[0] == '\0';
+        const bool nameTaken = !nameEmpty && machine.GetStates().count(state.NewStateName) > 0;
+        if (nameTaken) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "A state with that name already exists.");
+
+        if (nameEmpty || nameTaken) ImGui::BeginDisabled();
+        if (ImGui::Button("Create")) {
+            std::shared_ptr<Animation> clip;
+            if (state.NewStateClipPath[0] != '\0' && target.SourceModel) {
+                const std::string resolved = AssetPaths::Resolve(AssetPaths::Category::Models, state.NewStateClipPath);
+                clip = target.SourceModel->LoadAnimation(resolved);
+                if (!clip) state.StatusMessage = "Failed to load clip - state created without one.";
+            }
+            machine.AddState(state.NewStateName, clip, state.NewStateBlendIn, state.NewStateClipPath);
+            state.NodePositions[state.NewStateName] = state.PendingNewStatePos;
+            if (machine.GetInitialState().empty()) {
+                machine.SetInitialState(state.NewStateName);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        if (nameEmpty || nameTaken) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    auto& transitions = machine.GetTransitionsMutable();
+    for (int i = 0; i < static_cast<int>(transitions.size()); ++i) {
+        const auto& transition = transitions[i];
+        if (transition.FromState == "*" || !machine.GetStates().count(transition.FromState) ||
+            !machine.GetStates().count(transition.ToState)) {
+            continue; // "any state" transitions are edited via the inspector, not drawn as an edge
+        }
+
+        ImVec2 from = nodeTopLeft(transition.FromState);
+        from.x += nodeSize.x * 0.5f; from.y += nodeSize.y * 0.5f;
+        ImVec2 to = nodeTopLeft(transition.ToState);
+        to.x += nodeSize.x * 0.5f; to.y += nodeSize.y * 0.5f;
+
+        const bool isSelected = (state.SelectedTransitionIndex == i);
+        const ImU32 color = isSelected ? IM_COL32(255, 200, 60, 255) : IM_COL32(130, 130, 140, 255);
+        drawList->AddLine(from, to, color, isSelected ? 3.0f : 1.5f);
+
+        ImVec2 dir(to.x - from.x, to.y - from.y);
+        const float len = sqrtf(dir.x * dir.x + dir.y * dir.y);
+        if (len > 1.0f) {
+            dir.x /= len; dir.y /= len;
+            const ImVec2 tip(to.x - dir.x * (nodeSize.x * 0.5f), to.y - dir.y * (nodeSize.y * 0.5f));
+            const ImVec2 perp(-dir.y, dir.x);
+            drawList->AddTriangleFilled(
+                tip,
+                ImVec2(tip.x - dir.x * 12.0f + perp.x * 6.0f, tip.y - dir.y * 12.0f + perp.y * 6.0f),
+                ImVec2(tip.x - dir.x * 12.0f - perp.x * 6.0f, tip.y - dir.y * 12.0f - perp.y * 6.0f),
+                color);
+        }
+
+        const ImVec2 mid((from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f);
+        ImGui::PushID(i);
+        ImGui::SetCursorScreenPos(ImVec2(mid.x - 8.0f, mid.y - 8.0f));
+        ImGui::InvisibleButton("TransitionHit", ImVec2(16.0f, 16.0f));
+        if (ImGui::IsItemClicked()) {
+            state.SelectedTransitionIndex = i;
+            state.SelectedState.clear();
+        }
+        ImGui::PopID();
+        drawList->AddCircleFilled(mid, 5.0f, color);
+    }
+
+    for (const auto& [name, def] : machine.GetStates()) {
+        const ImVec2 pos = nodeTopLeft(name);
+        ImGui::PushID(name.c_str());
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::InvisibleButton("Node", nodeSize);
+        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            const ImVec2 delta = ImGui::GetIO().MouseDelta;
+            state.NodePositions[name].x += delta.x;
+            state.NodePositions[name].y += delta.y;
+        }
+        if (ImGui::IsItemClicked()) {
+            state.SelectedState = name;
+            state.SelectedTransitionIndex = -1;
+        }
+        ImGui::PopID();
+
+        const bool isSelected = (state.SelectedState == name);
+        const bool isRuntimeCurrent = machine.GetCurrentState() == name;
+        const ImU32 fillColor = isRuntimeCurrent ? IM_COL32(65, 125, 85, 255) : IM_COL32(52, 52, 60, 255);
+        const ImU32 borderColor = isSelected ? IM_COL32(255, 200, 60, 255) : IM_COL32(95, 95, 105, 255);
+
+        drawList->AddRectFilled(pos, ImVec2(pos.x + nodeSize.x, pos.y + nodeSize.y), fillColor, 5.0f);
+        drawList->AddRect(pos, ImVec2(pos.x + nodeSize.x, pos.y + nodeSize.y), borderColor, 5.0f, 0, isSelected ? 2.5f : 1.0f);
+        drawList->AddText(ImVec2(pos.x + 8.0f, pos.y + 6.0f), IM_COL32(240, 240, 240, 255), name.c_str());
+
+        char subLabel[80];
+        std::snprintf(subLabel, sizeof(subLabel), "blend %.2fs", def.BlendInDuration);
+        drawList->AddText(ImVec2(pos.x + 8.0f, pos.y + 26.0f), IM_COL32(180, 180, 185, 255), subLabel);
+
+        if (machine.GetInitialState() == name) {
+            drawList->AddText(ImVec2(pos.x + 8.0f, pos.y + 42.0f), IM_COL32(140, 200, 255, 255), "initial");
+        }
+    }
+
+    ImGui::EndChild();
+}
+
+void EditorUI::DrawStateInspector(const AnimatorEditTarget& target, AnimatorEditorTargetState& state) {
+    AnimationStateMachine& machine = *target.Machine;
+    auto it = machine.GetStatesMutable().find(state.SelectedState);
+    if (it == machine.GetStatesMutable().end()) { state.SelectedState.clear(); return; }
+
+    ImGui::SeparatorText(("State: " + state.SelectedState).c_str());
+
+    if (state.LastEditedState != state.SelectedState) {
+        std::strncpy(state.RenameBuffer, state.SelectedState.c_str(), sizeof(state.RenameBuffer) - 1);
+        std::strncpy(state.ClipPathBuffer, it->second.ClipPath.c_str(), sizeof(state.ClipPathBuffer) - 1);
+        state.LastEditedState = state.SelectedState;
+    }
+
+    ImGui::InputText("Name", state.RenameBuffer, sizeof(state.RenameBuffer));
+    ImGui::SameLine();
+    if (ImGui::Button("Rename")) {
+        const std::string newName = state.RenameBuffer;
+        if (machine.RenameState(state.SelectedState, newName)) {
+            auto nodeIt = state.NodePositions.find(state.SelectedState);
+            if (nodeIt != state.NodePositions.end()) {
+                state.NodePositions[newName] = nodeIt->second;
+                state.NodePositions.erase(nodeIt);
+            }
+            state.SelectedState = newName;
+            state.LastEditedState = newName;
+        } else {
+            state.StatusMessage = "Rename failed (empty or duplicate name)";
+        }
+    }
+
+    float blendIn = it->second.BlendInDuration;
+    if (ImGui::SliderFloat("Blend In", &blendIn, 0.0f, 2.0f, "%.2fs")) {
+        machine.SetStateBlendIn(state.SelectedState, blendIn);
+    }
+
+    ImGui::InputText("Clip Path", state.ClipPathBuffer, sizeof(state.ClipPathBuffer));
+    ImGui::SameLine();
+    if (ImGui::Button("Load Clip") && target.SourceModel) {
+        const std::string resolved = AssetPaths::Resolve(AssetPaths::Category::Models, state.ClipPathBuffer);
+        auto clip = target.SourceModel->LoadAnimation(resolved);
+        if (clip) {
+            machine.SetStateClip(state.SelectedState, clip, state.ClipPathBuffer);
+            state.StatusMessage = "Clip loaded.";
+        } else {
+            state.StatusMessage = "Failed to load clip - see log.";
+        }
+    }
+
+    if (it->second.Clip && ImGui::Button("Preview This Clip")) {
+        state.PreviewMode = true;
+        target.AnimatorPtr->BeginPreview();
+        target.AnimatorPtr->ScrubToNormalizedTime(it->second.Clip, state.PreviewNormalizedTime);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Set As Initial")) {
+        machine.SetInitialState(state.SelectedState);
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Delete State")) {
+        const std::string removedName = state.SelectedState;
+        machine.RemoveState(removedName);
+        state.NodePositions.erase(removedName);
+        state.SelectedState.clear();
+        state.LastEditedState.clear();
+    }
+}
+
+void EditorUI::DrawTransitionInspector(const AnimatorEditTarget& target, AnimatorEditorTargetState& state) {
+    AnimationStateMachine& machine = *target.Machine;
+    auto& transitions = machine.GetTransitionsMutable();
+    if (state.SelectedTransitionIndex < 0 || state.SelectedTransitionIndex >= static_cast<int>(transitions.size())) {
+        state.SelectedTransitionIndex = -1;
+        return;
+    }
+    auto& transition = transitions[state.SelectedTransitionIndex];
+
+    ImGui::SeparatorText("Transition");
+
+    if (ImGui::BeginCombo("From", transition.FromState.c_str())) {
+        const bool wildcardSelected = (transition.FromState == "*");
+        if (ImGui::Selectable("*", wildcardSelected)) transition.FromState = "*";
+        for (const auto& [name, def] : machine.GetStates()) {
+            const bool isSelected = (name == transition.FromState);
+            if (ImGui::Selectable(name.c_str(), isSelected)) transition.FromState = name;
+            if (isSelected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    if (ImGui::BeginCombo("To", transition.ToState.c_str())) {
+        for (const auto& [name, def] : machine.GetStates()) {
+            const bool isSelected = (name == transition.ToState);
+            if (ImGui::Selectable(name.c_str(), isSelected)) transition.ToState = name;
+            if (isSelected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Conditions (AND)");
+
+    int removeIndex = -1;
+    for (int i = 0; i < static_cast<int>(transition.Conditions.size()); ++i) {
+        auto& condition = transition.Conditions[i];
+        ImGui::PushID(i);
+
+        char paramBuf[64];
+        std::strncpy(paramBuf, condition.ParamName.c_str(), sizeof(paramBuf) - 1);
+        paramBuf[sizeof(paramBuf) - 1] = '\0';
+        ImGui::SetNextItemWidth(120.0f);
+        if (ImGui::InputText("##Param", paramBuf, sizeof(paramBuf))) condition.ParamName = paramBuf;
+
+        ImGui::SameLine();
+        int typeIndex = static_cast<int>(condition.Type);
+        ImGui::SetNextItemWidth(80.0f);
+        if (ImGui::Combo("##Type", &typeIndex, "bool\0float\0int\0")) {
+            condition.Type = static_cast<AnimationStateMachine::ParamType>(typeIndex);
+        }
+
+        ImGui::SameLine();
+        int compIndex = static_cast<int>(condition.Comp);
+        ImGui::SetNextItemWidth(130.0f);
+        if (ImGui::Combo("##Comp", &compIndex,
+            "equals\0notEquals\0greaterThan\0lessThan\0greaterOrEqual\0lessOrEqual\0")) {
+            condition.Comp = static_cast<AnimationStateMachine::Comparison>(compIndex);
+        }
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(100.0f);
+        switch (condition.Type) {
+            case AnimationStateMachine::ParamType::Bool:  ImGui::Checkbox("##Value", &condition.BoolValue); break;
+            case AnimationStateMachine::ParamType::Float: ImGui::InputFloat("##Value", &condition.FloatValue); break;
+            case AnimationStateMachine::ParamType::Int:   ImGui::InputInt("##Value", &condition.IntValue); break;
+        }
+
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) removeIndex = i;
+
+        ImGui::PopID();
+    }
+    if (removeIndex >= 0) transition.Conditions.erase(transition.Conditions.begin() + removeIndex);
+
+    if (ImGui::Button("+ Add Condition")) {
+        transition.Conditions.push_back(AnimationStateMachine::Condition{});
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Delete Transition")) {
+        machine.RemoveTransition(static_cast<size_t>(state.SelectedTransitionIndex));
+        state.SelectedTransitionIndex = -1;
+    }
+}
+
+void EditorUI::DrawBoneTree(const AnimatorEditTarget& target, AnimatorEditorTargetState& state) {
+    ImGui::BeginChild("BoneTree", ImVec2(0, 220), true);
+    ImGui::TextUnformatted("Skeleton");
+    ImGui::Separator();
+
+    std::shared_ptr<Animation> referenceClip;
+    if (!state.SelectedState.empty()) {
+        auto it = target.Machine->GetStates().find(state.SelectedState);
+        if (it != target.Machine->GetStates().end()) referenceClip = it->second.Clip;
+    }
+    if (!referenceClip) referenceClip = target.AnimatorPtr->GetCurrentAnimation();
+
+    if (!referenceClip) {
+        ImGui::TextDisabled("Select a state (or start playback) to see its skeleton.");
+        ImGui::EndChild();
+        return;
+    }
+
+    const auto& boneMap = referenceClip->GetBoneIDMap();
+
+    std::function<void(const AssimpNodeData&)> drawNode = [&](const AssimpNodeData& node) {
+        const bool isBone = boneMap.find(node.name) != boneMap.end();
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (node.children.empty()) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+        if (isBone) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.85f, 0.55f, 1.0f));
+
+        std::string label = node.name.empty() ? "(unnamed)" : node.name;
+        if (isBone) label += " [bone " + std::to_string(boneMap.at(node.name).id) + "]";
+
+        const bool opened = ImGui::TreeNodeEx(label.c_str(), flags);
+        if (isBone) ImGui::PopStyleColor();
+
+        if (opened && !(flags & ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+            for (const auto& child : node.children) drawNode(child);
+            ImGui::TreePop();
+        }
+    };
+
+    drawNode(referenceClip->GetRootNode());
+    ImGui::EndChild();
+}
+
+void EditorUI::DrawAnimatorTimeline(const AnimatorEditTarget& target, AnimatorEditorTargetState& state) {
+    ImGui::BeginChild("Timeline", ImVec2(0, 220), true);
+    ImGui::TextUnformatted("Timeline");
+    ImGui::Separator();
+
+    std::shared_ptr<Animation> clip;
+    if (!state.SelectedState.empty()) {
+        auto it = target.Machine->GetStates().find(state.SelectedState);
+        if (it != target.Machine->GetStates().end()) clip = it->second.Clip;
+    }
+    if (!clip) clip = target.AnimatorPtr->GetCurrentAnimation();
+
+    if (!clip) {
+        ImGui::TextDisabled("Select a state with a loaded clip to scrub its timeline.");
+        ImGui::EndChild();
+        return;
+    }
+
+    ImGui::Text("Duration: %.2f ticks @ %.1f tps", clip->GetDuration(), clip->GetTicksPerSecond());
+
+    const bool scrubbable = state.PreviewMode;
+    if (!scrubbable) ImGui::BeginDisabled();
+    if (ImGui::SliderFloat("Playhead", &state.PreviewNormalizedTime, 0.0f, 1.0f)) {
+        target.AnimatorPtr->ScrubToNormalizedTime(clip, state.PreviewNormalizedTime);
+    }
+    if (!scrubbable) {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(enable Preview Mode to scrub)");
+    }
+
+    const ImVec2 barPos = ImGui::GetCursorScreenPos();
+    const ImVec2 barSize(ImGui::GetContentRegionAvail().x, 16.0f);
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    drawList->AddRectFilled(barPos, ImVec2(barPos.x + barSize.x, barPos.y + barSize.y), IM_COL32(45, 45, 50, 255));
+
+    for (const auto& event : clip->GetEvents()) {
+        const float x = barPos.x + event.NormalizedTime * barSize.x;
+        drawList->AddTriangleFilled(ImVec2(x - 5, barPos.y), ImVec2(x + 5, barPos.y),
+                                     ImVec2(x, barPos.y + barSize.y), IM_COL32(230, 180, 60, 255));
+    }
+    ImGui::Dummy(barSize);
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Events");
+
+    int removeEventIndex = -1;
+    auto& mutableEvents = clip->GetEventsMutable();
+    for (int i = 0; i < static_cast<int>(mutableEvents.size()); ++i) {
+        ImGui::PushID(i);
+        ImGui::Text("%.2f", mutableEvents[i].NormalizedTime);
+        ImGui::SameLine();
+        ImGui::TextUnformatted(mutableEvents[i].Name.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) removeEventIndex = i;
+        ImGui::PopID();
+    }
+    if (removeEventIndex >= 0) clip->RemoveEvent(static_cast<size_t>(removeEventIndex));
+
+    ImGui::SetNextItemWidth(120.0f);
+    ImGui::InputText("##NewEventName", state.NewEventName, sizeof(state.NewEventName));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(100.0f);
+    ImGui::SliderFloat("##NewEventTime", &state.NewEventTime, 0.0f, 1.0f);
+    ImGui::SameLine();
+    if (ImGui::Button("+ Add Event") && state.NewEventName[0] != '\0') {
+        clip->AddEvent(state.NewEventName, state.NewEventTime);
+        state.NewEventName[0] = '\0';
+    }
+
+    ImGui::EndChild();
 }

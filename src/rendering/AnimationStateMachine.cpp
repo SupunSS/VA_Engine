@@ -1,8 +1,58 @@
 #include "AnimationStateMachine.h"
 #include "../core/Log.h"
+#include <algorithm>
 
-void AnimationStateMachine::AddState(const std::string& name, std::shared_ptr<Animation> clip, float blendInDuration) {
-    m_States[name] = StateDef{ clip, blendInDuration };
+void AnimationStateMachine::AddState(const std::string& name, std::shared_ptr<Animation> clip,
+                                      float blendInDuration, const std::string& clipPath) {
+    m_States[name] = StateDef{ clip, blendInDuration, clipPath };
+}
+
+bool AnimationStateMachine::RemoveState(const std::string& name) {
+    auto it = m_States.find(name);
+    if (it == m_States.end()) return false;
+    m_States.erase(it);
+
+    m_Transitions.erase(
+        std::remove_if(m_Transitions.begin(), m_Transitions.end(),
+            [&](const TransitionDef& t) { return t.FromState == name || t.ToState == name; }),
+        m_Transitions.end());
+
+    if (m_CurrentState == name) m_CurrentState.clear();
+    if (m_InitialState == name) m_InitialState.clear();
+    return true;
+}
+
+bool AnimationStateMachine::RenameState(const std::string& oldName, const std::string& newName) {
+    if (oldName == newName) return true;
+    if (newName.empty() || m_States.count(newName) > 0) return false;
+
+    auto it = m_States.find(oldName);
+    if (it == m_States.end()) return false;
+
+    StateDef def = it->second;
+    m_States.erase(it);
+    m_States[newName] = def;
+
+    for (auto& transition : m_Transitions) {
+        if (transition.FromState == oldName) transition.FromState = newName;
+        if (transition.ToState == oldName) transition.ToState = newName;
+    }
+    if (m_CurrentState == oldName) m_CurrentState = newName;
+    if (m_InitialState == oldName) m_InitialState = newName;
+    return true;
+}
+
+void AnimationStateMachine::SetStateBlendIn(const std::string& name, float blendIn) {
+    auto it = m_States.find(name);
+    if (it != m_States.end()) it->second.BlendInDuration = blendIn;
+}
+
+void AnimationStateMachine::SetStateClip(const std::string& name, std::shared_ptr<Animation> clip, const std::string& clipPath) {
+    auto it = m_States.find(name);
+    if (it != m_States.end()) {
+        it->second.Clip = clip;
+        it->second.ClipPath = clipPath;
+    }
 }
 
 void AnimationStateMachine::AddTransition(const std::string& fromState, const std::string& toState,
@@ -10,7 +60,14 @@ void AnimationStateMachine::AddTransition(const std::string& fromState, const st
     m_Transitions.push_back(TransitionDef{ fromState, toState, std::move(conditions) });
 }
 
+void AnimationStateMachine::RemoveTransition(size_t index) {
+    if (index < m_Transitions.size()) {
+        m_Transitions.erase(m_Transitions.begin() + index);
+    }
+}
+
 void AnimationStateMachine::SetInitialState(const std::string& name) {
+    m_InitialState = name;
     m_CurrentState = name;
     m_HasEnteredInitialState = false;
 }
@@ -39,7 +96,7 @@ bool AnimationStateMachine::EvaluateCondition(const Condition& condition) const 
             switch (condition.Comp) {
                 case Comparison::Equals:    return value == condition.BoolValue;
                 case Comparison::NotEquals: return value != condition.BoolValue;
-                default: return false; // ordering comparisons don't apply to bool
+                default: return false;
             }
         }
         case ParamType::Float: {
@@ -75,9 +132,7 @@ bool AnimationStateMachine::AllConditionsPass(const TransitionDef& transition) c
         return false;
     }
     for (const auto& condition : transition.Conditions) {
-        if (!EvaluateCondition(condition)) {
-            return false;
-        }
+        if (!EvaluateCondition(condition)) return false;
     }
     return true;
 }
@@ -86,7 +141,7 @@ void AnimationStateMachine::Update(Animator& animator) {
     if (!m_HasEnteredInitialState) {
         auto it = m_States.find(m_CurrentState);
         if (it != m_States.end()) {
-            animator.PlayAnimation(it->second.Clip, 0.0f); // instant — first pose, nothing to blend from
+            animator.PlayAnimation(it->second.Clip, 0.0f);
         } else {
             Log::Warn("AnimationStateMachine: initial state '{}' has no matching AddState() call", m_CurrentState);
         }
@@ -95,13 +150,8 @@ void AnimationStateMachine::Update(Animator& animator) {
     }
 
     for (const auto& transition : m_Transitions) {
-        if (!AllConditionsPass(transition)) {
-            continue;
-        }
-
-        if (transition.ToState == m_CurrentState) {
-            return; // "transition" to the same state — nothing to do
-        }
+        if (!AllConditionsPass(transition)) continue;
+        if (transition.ToState == m_CurrentState) return;
 
         auto it = m_States.find(transition.ToState);
         if (it == m_States.end()) {
@@ -111,6 +161,6 @@ void AnimationStateMachine::Update(Animator& animator) {
 
         m_CurrentState = transition.ToState;
         animator.PlayAnimation(it->second.Clip, it->second.BlendInDuration);
-        return; // first passing transition wins this frame
+        return;
     }
 }

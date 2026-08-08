@@ -184,14 +184,20 @@ struct MovementState {
 // Deliberately separate from AudioSource since footsteps are timed
 // one-shots, not a single persistent looping sound.
 struct FootstepAudio {
-    AudioClipId WalkStepClip = kInvalidAudioClip;
-    AudioClipId RunStepClip = kInvalidAudioClip;   // optional — falls back to WalkStepClip if unset
-    float StrideInterval = 0.42f;                  // seconds between steps at walk pace
-    float RunStrideMultiplier = 0.65f;              // < 1 = faster steps while sprinting
+    // Pool of footstep variations, picked randomly (no immediate repeats)
+    // each time a step fires — see AudioSystem::PlayRandomFootstep. A
+    // single-clip setup still works fine: just put one entry in the vector.
+    std::vector<AudioClipId> WalkStepClips;
+    std::vector<AudioClipId> RunStepClips; // optional — falls back to WalkStepClips if empty
+    int LastPlayedIndex = -1;              // tracks which pool index played last, to avoid back-to-back repeats
+
+    float StrideInterval = 0.42f;          // seconds between steps at walk pace — used ONLY as a fallback for entities with no Animator
+    float RunStrideMultiplier = 0.65f;     // < 1 = faster steps while sprinting
     float StepTimer = 0.0f;
     float Volume = 0.6f;
+    bool EventCallbackRegistered = false;
 };
- 
+
 // Engine note for a vehicle: pitch/volume are driven every frame from the
 // vehicle's current RPM (see AudioSystem::UpdateVehicleEngineSounds), on
 // top of a persistent looping AudioSource created when the vehicle spawns.

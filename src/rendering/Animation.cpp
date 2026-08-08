@@ -1,4 +1,5 @@
 #include "Animation.h"
+#include <algorithm>
 
 namespace {
 glm::mat4 ConvertMatrix(const aiMatrix4x4& m) {
@@ -62,5 +63,15 @@ void Animation::ReadMissingBones(const aiAnimation* animation,
         }
 
         m_Bones.push_back(Bone(boneName, boneInfoMap[boneName].id, channel));
+    }
+}
+
+void Animation::AddEvent(const std::string& name, float normalizedTime) {
+    m_Events.push_back(AnimationEvent{ name, std::clamp(normalizedTime, 0.0f, 1.0f) });
+}
+
+void Animation::RemoveEvent(size_t index) {
+    if (index < m_Events.size()) {
+        m_Events.erase(m_Events.begin() + index);
     }
 }

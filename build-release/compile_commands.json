@@ -295,6 +295,12 @@
 },
 {
   "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -I\"D:\\Projects\\VA Engine\\src\\engine\\public\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\va_engine_core.dir\\src\\audio\\FootstepClipLoader.cpp.obj /FdCMakeFiles\\va_engine_core.dir\\va_engine_core.pdb /FS -c \"D:\\Projects\\VA Engine\\src\\audio\\FootstepClipLoader.cpp\"",
+  "file": "D:/Projects/VA Engine/src/audio/FootstepClipLoader.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/va_engine_core.dir/src/audio/FootstepClipLoader.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
   "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -I\"D:\\Projects\\VA Engine\\src\\engine\\public\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\engine.dir\\src\\main.cpp.obj /FdCMakeFiles\\engine.dir\\ /FS -c \"D:\\Projects\\VA Engine\\src\\main.cpp\"",
   "file": "D:/Projects/VA Engine/src/main.cpp",
   "output": "D:/Projects/VA Engine/build-release/CMakeFiles/engine.dir/src/main.cpp.obj"

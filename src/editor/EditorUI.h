@@ -19,6 +19,9 @@
 class Texture;
 class CharacterController; // used only by pointer here — full type comes from CharacterController.h in the .cpp
 class ScriptEngine; // forward decl — only a reference is needed in the header
+class Animator;
+class AnimationStateMachine;
+class Model;
 
 enum class GizmoOperation {
     Translate,
@@ -29,7 +32,47 @@ enum class GizmoOperation {
 enum class Workspace {
     Full,
     Scripter,
-    LevelDesigner
+    LevelDesigner,
+    Animation
+};
+
+// One thing the Animator Editor can edit — either the player or whichever
+// scene entity has an AnimatorComponent. main.cpp/EditorUI caller builds
+// this list each frame; the editor itself owns no ECS access.
+struct AnimatorEditTarget {
+    std::string Key;            // stable per-target key, e.g. "player" or "entity_42" — used to persist graph layout/selection across frames
+    std::string DisplayName;    // tab label, e.g. "Player" or "Entity 42"
+    AnimationStateMachine* Machine = nullptr;
+    Animator* AnimatorPtr = nullptr;
+    std::shared_ptr<Model> SourceModel; // needed to LoadAnimation() when authoring new states/clips
+};
+
+// Per-target editor UI state (graph layout, selection, scratch buffers).
+// Kept separate from AnimationStateMachine itself since none of this is
+// runtime/gameplay data — it's purely how the editor is currently drawn.
+struct AnimatorEditorTargetState {
+    std::unordered_map<std::string, glm::vec2> NodePositions;
+    glm::vec2 PanOffset{0.0f, 0.0f};
+    std::string SelectedState;
+    int SelectedTransitionIndex = -1;
+    bool PreviewMode = false;
+    float PreviewNormalizedTime = 0.0f;
+
+    char NewStateName[64] = {};
+    char NewStateClipPath[256] = {};
+    float NewStateBlendIn = 0.2f;
+    glm::vec2 PendingNewStatePos{40.0f, 40.0f};
+
+    char RenameBuffer[64] = {};
+    char ClipPathBuffer[256] = {};
+    std::string LastEditedState;
+
+    char SaveAsPathBuffer[256] = {};
+
+    char NewEventName[64] = {};
+    float NewEventTime = 0.0f;
+
+    std::string StatusMessage;
 };
 
 class EditorUI {
@@ -89,6 +132,14 @@ public:
     // trigger a re-run too, without needing to return to this panel.
     void DrawScriptEditorPanel(ScriptEngine& scriptEngine);
 
+    // Read-only debug/preview panel: shows current state, blend progress,
+    // live parameter values, and the defined states/transitions for the
+    // player's animation state machine (if provided) and whichever entity
+    // is currently selected in the Scene Hierarchy (if it has an
+    // AnimatorComponent with a StateMachine). Either pointer pair may be
+    // null/absent — the panel just shows "Not available" for that section.
+    void DrawAnimationPanel(Scene& scene, AnimationStateMachine* playerStateMachine, Animator* playerAnimator);
+
     GizmoOperation CurrentGizmoOperation = GizmoOperation::Translate;
 
     // --- Workspaces ---------------------------------------------------
@@ -97,6 +148,15 @@ public:
     // just Show* visibility flags.
     void ApplyWorkspace(Workspace workspace);
     Workspace GetCurrentWorkspace() const { return m_currentWorkspace; }
+
+    // Full authoring Animator Editor: visual state graph (drag/select
+    // nodes, right-click to add a state, click an arrow to edit a
+    // transition), bone hierarchy tree, and a scrubbable timeline with
+    // events. Complements (does not replace) DrawAnimationPanel, which
+    // stays a lightweight read-only debug view.
+    void DrawAnimatorEditorPanel(const std::vector<AnimatorEditTarget>& targets);
+
+    bool ShowAnimatorEditor = true;
 
     entt::entity SelectedEntity = entt::null;
 
@@ -113,6 +173,9 @@ public:
     bool ShowCullingPanel = true;
     bool ShowSaveLoadPanel = true;
     bool ShowScriptEditorPanel = true;
+    bool ShowAnimationPanel = true;
+    bool ShowCullingDebugOverlay = true;
+    
 private:
     void EnsureAssetDirectories();
     void RefreshScriptFileList();
@@ -177,4 +240,13 @@ private:
     std::unordered_set<std::string> m_watchedScriptPaths; // avoid re-registering the same HotReload watch every save
 
     Workspace m_currentWorkspace = Workspace::Full;
+
+    void DrawAnimatorTargetEditor(const AnimatorEditTarget& target);
+    void DrawStateGraphCanvas(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
+    void DrawStateInspector(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
+    void DrawTransitionInspector(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
+    void DrawBoneTree(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
+    void DrawAnimatorTimeline(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
+
+    std::unordered_map<std::string, AnimatorEditorTargetState> m_animatorEditorState;
 };

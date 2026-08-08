@@ -9,6 +9,7 @@
 #include <cmath>
 #include <random>
 #include <vector>
+#include "../audio/FootstepClipLoader.h"
 
 namespace PedestrianSpawnSystem {
 
@@ -36,6 +37,7 @@ struct PedestrianAssets {
     std::shared_ptr<Model> Model;
     std::shared_ptr<Animation> IdleAnim;
     std::shared_ptr<Animation> WalkAnim;
+    std::vector<AudioClipId> WalkStepClips;
     bool Loaded = false;
 };
 
@@ -45,6 +47,7 @@ PedestrianAssets& GetAssets(const Config& config) {
         assets.Model = SceneLoader::GetOrLoadModel(config.ModelPath);
         assets.IdleAnim = assets.Model->LoadAnimation(config.IdleAnimPath);
         assets.WalkAnim = assets.Model->LoadAnimation(config.WalkAnimPath);
+        assets.WalkStepClips = FootstepClipLoader::LoadNumberedSequence("sfx/Steps_floor-", 1, 21, ".wav", 3);
         assets.Loaded = true;
     }
     return assets;
@@ -103,6 +106,12 @@ void SpawnOnePedestrian(Scene& scene, const glm::vec3& viewerPosition, const Con
     animComp.IdleAnim = assets.IdleAnim;
     animComp.WalkAnim = assets.WalkAnim;
     animComp.SourceModel = assets.Model;
+
+    auto& footsteps = scene.Registry.emplace<FootstepAudio>(entity);
+    footsteps.WalkStepClips = assets.WalkStepClips;
+    footsteps.Volume = 0.4f;
+
+    // Play idle immediately at spawn — without this, the pedestrian's
     // Play idle immediately at spawn — without this, the pedestrian's
     // Animator has no active animation until PedestrianSystem::Update
     // first switches it, which is exactly what produced the T-pose you

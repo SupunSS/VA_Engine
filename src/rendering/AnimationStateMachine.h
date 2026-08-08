@@ -6,32 +6,14 @@
 #include "Animation.h"
 #include "Animator.h"
 
-// Reusable animation state machine: named states (each backed by a clip and
-// a blend-in duration), and named transitions between them gated by
-// conditions over a small parameter bag (bools/floats/ints by name —
-// e.g. "IsMoving", "Speed"). Call the Set*/Get* accessors each frame to
-// update parameters from gameplay code, then Update() evaluates whichever
-// transitions apply and drives the underlying Animator automatically,
-// including that transition's blend duration.
-//
-// This class only knows about states/transitions/parameters — it has no
-// opinion on how it gets constructed. See AnimationStateMachineLoader for
-// building one from a JSON file instead of by hand in C++.
 class AnimationStateMachine {
 public:
     enum class Comparison {
-        Equals,
-        NotEquals,
-        GreaterThan,
-        LessThan,
-        GreaterOrEqual,
-        LessOrEqual
+        Equals, NotEquals, GreaterThan, LessThan, GreaterOrEqual, LessOrEqual
     };
 
     enum class ParamType {
-        Bool,
-        Float,
-        Int
+        Bool, Float, Int
     };
 
     struct Condition {
@@ -43,21 +25,34 @@ public:
         int IntValue = 0;
     };
 
-    // Adds a state. blendInDuration is how long PlayAnimation() blends INTO
-    // this state when a transition targets it (0 = instant snap).
-    void AddState(const std::string& name, std::shared_ptr<Animation> clip, float blendInDuration = 0.2f);
+    struct StateDef {
+        std::shared_ptr<Animation> Clip;
+        float BlendInDuration = 0.2f;
+        // Raw, unresolved path as authored (e.g. "characters/idle.fbx") —
+        // this is what gets written back out by AnimationStateMachineLoader::SaveToFile.
+        // NOT the same as Animation::GetSourcePath(), which stores the resolved path.
+        std::string ClipPath;
+    };
 
-    // fromState may be "*" to mean "from any state". All conditions must
-    // pass (AND) for the transition to fire. Transitions are evaluated in
-    // the order they were added; the first one whose conditions all pass
-    // wins for this frame.
+    struct TransitionDef {
+        std::string FromState;
+        std::string ToState;
+        std::vector<Condition> Conditions;
+    };
+
+    void AddState(const std::string& name, std::shared_ptr<Animation> clip,
+                  float blendInDuration = 0.2f, const std::string& clipPath = "");
+    bool RemoveState(const std::string& name);
+    bool RenameState(const std::string& oldName, const std::string& newName);
+    void SetStateBlendIn(const std::string& name, float blendIn);
+    void SetStateClip(const std::string& name, std::shared_ptr<Animation> clip, const std::string& clipPath);
+
     void AddTransition(const std::string& fromState, const std::string& toState,
                         std::vector<Condition> conditions);
+    void RemoveTransition(size_t index);
 
-    // Sets which state playback starts in. Does not itself call
-    // PlayAnimation — call Update() once after this (or rely on the first
-    // real Update() call) to actually start playback.
     void SetInitialState(const std::string& name);
+    const std::string& GetInitialState() const { return m_InitialState; }
 
     void SetBool(const std::string& name, bool value);
     void SetFloat(const std::string& name, float value);
@@ -67,32 +62,34 @@ public:
     float GetFloat(const std::string& name) const;
     int GetInt(const std::string& name) const;
 
-    // Evaluates transitions out of the current state and, if one fires,
-    // switches the given Animator to the new state's clip with that
-    // state's blend-in duration. Call once per frame.
     void Update(Animator& animator);
 
     const std::string& GetCurrentState() const { return m_CurrentState; }
 
+    // Introspection / editor accessors
+    const std::unordered_map<std::string, StateDef>& GetStates() const { return m_States; }
+    std::unordered_map<std::string, StateDef>& GetStatesMutable() { return m_States; }
+    const std::vector<TransitionDef>& GetTransitions() const { return m_Transitions; }
+    std::vector<TransitionDef>& GetTransitionsMutable() { return m_Transitions; }
+    const std::unordered_map<std::string, bool>& GetBoolParams() const { return m_BoolParams; }
+    const std::unordered_map<std::string, float>& GetFloatParams() const { return m_FloatParams; }
+    const std::unordered_map<std::string, int>& GetIntParams() const { return m_IntParams; }
+
+    // Set by AnimationStateMachineLoader after a successful load — lets the
+    // editor's "Save" button write back to the same file without asking.
+    void SetSourceFilePath(const std::string& path) { m_SourceFilePath = path; }
+    const std::string& GetSourceFilePath() const { return m_SourceFilePath; }
+
 private:
-    struct StateDef {
-        std::shared_ptr<Animation> Clip;
-        float BlendInDuration = 0.2f;
-    };
-
-    struct TransitionDef {
-        std::string FromState;
-        std::string ToState;
-        std::vector<Condition> Conditions;
-    };
-
     bool EvaluateCondition(const Condition& condition) const;
     bool AllConditionsPass(const TransitionDef& transition) const;
 
     std::unordered_map<std::string, StateDef> m_States;
     std::vector<TransitionDef> m_Transitions;
     std::string m_CurrentState;
+    std::string m_InitialState;
     bool m_HasEnteredInitialState = false;
+    std::string m_SourceFilePath;
 
     std::unordered_map<std::string, bool> m_BoolParams;
     std::unordered_map<std::string, float> m_FloatParams;

@@ -4,6 +4,7 @@
 #include "../core/AssetPaths.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <filesystem>
 #include <unordered_set>
 
 namespace AnimationStateMachineLoader {
@@ -29,9 +30,31 @@ bool ParseComparison(const std::string& compStr, AnimationStateMachine::Comparis
     return false;
 }
 
+const char* ParamTypeToString(AnimationStateMachine::ParamType type) {
+    switch (type) {
+        case AnimationStateMachine::ParamType::Bool:  return "bool";
+        case AnimationStateMachine::ParamType::Float: return "float";
+        case AnimationStateMachine::ParamType::Int:   return "int";
+    }
+    return "bool";
+}
+
+const char* ComparisonToString(AnimationStateMachine::Comparison comp) {
+    switch (comp) {
+        case AnimationStateMachine::Comparison::Equals:         return "equals";
+        case AnimationStateMachine::Comparison::NotEquals:      return "notEquals";
+        case AnimationStateMachine::Comparison::GreaterThan:    return "greaterThan";
+        case AnimationStateMachine::Comparison::LessThan:       return "lessThan";
+        case AnimationStateMachine::Comparison::GreaterOrEqual: return "greaterOrEqual";
+        case AnimationStateMachine::Comparison::LessOrEqual:    return "lessOrEqual";
+    }
+    return "equals";
+}
+
 } // namespace
 
-std::shared_ptr<AnimationStateMachine> LoadFromFile(const std::string& filePath, Model& model) {
+std::shared_ptr<AnimationStateMachine> LoadFromFile(const std::string& filePath, Model& model,
+                                                     StateMachineLayout* outLayout) {
     const std::string resolvedPath = AssetPaths::Resolve(AssetPaths::Category::AnimStateMachines, filePath);
 
     std::ifstream file(resolvedPath);
@@ -73,7 +96,7 @@ std::shared_ptr<AnimationStateMachine> LoadFromFile(const std::string& filePath,
             return nullptr;
         }
 
-        machine->AddState(name, clip, blendIn);
+        machine->AddState(name, clip, blendIn, clipPath);
         stateNames.insert(name);
     }
 
@@ -137,8 +160,77 @@ std::shared_ptr<AnimationStateMachine> LoadFromFile(const std::string& filePath,
         }
     }
 
+    machine->SetSourceFilePath(resolvedPath);
+
+    if (outLayout && data.contains("layout")) {
+        for (auto& [name, posJson] : data["layout"].items()) {
+            StateMachineLayout::Vec2 pos;
+            pos.x = posJson.value("x", 0.0f);
+            pos.y = posJson.value("y", 0.0f);
+            outLayout->NodePositions[name] = pos;
+        }
+    }
+
     Log::Info("AnimationStateMachine: loaded '{}' from '{}'", data.value("name", resolvedPath), resolvedPath);
     return machine;
+}
+
+bool SaveToFile(const AnimationStateMachine& machine, const std::string& filePath,
+                const StateMachineLayout* layout) {
+    json data;
+    data["name"] = std::filesystem::path(filePath).stem().string();
+    data["initialState"] = machine.GetInitialState();
+
+    json statesJson = json::array();
+    for (const auto& [name, stateDef] : machine.GetStates()) {
+        json stateJson;
+        stateJson["name"] = name;
+        stateJson["clip"] = stateDef.ClipPath;
+        stateJson["blendIn"] = stateDef.BlendInDuration;
+        statesJson.push_back(stateJson);
+    }
+    data["states"] = statesJson;
+
+    json transitionsJson = json::array();
+    for (const auto& transition : machine.GetTransitions()) {
+        json transitionJson;
+        transitionJson["from"] = transition.FromState;
+        transitionJson["to"] = transition.ToState;
+
+        json conditionsJson = json::array();
+        for (const auto& condition : transition.Conditions) {
+            json conditionJson;
+            conditionJson["param"] = condition.ParamName;
+            conditionJson["type"] = ParamTypeToString(condition.Type);
+            conditionJson["comp"] = ComparisonToString(condition.Comp);
+            switch (condition.Type) {
+                case AnimationStateMachine::ParamType::Bool:  conditionJson["value"] = condition.BoolValue;  break;
+                case AnimationStateMachine::ParamType::Float: conditionJson["value"] = condition.FloatValue; break;
+                case AnimationStateMachine::ParamType::Int:   conditionJson["value"] = condition.IntValue;   break;
+            }
+            conditionsJson.push_back(conditionJson);
+        }
+        transitionJson["conditions"] = conditionsJson;
+        transitionsJson.push_back(transitionJson);
+    }
+    data["transitions"] = transitionsJson;
+
+    if (layout) {
+        json layoutJson;
+        for (const auto& [name, pos] : layout->NodePositions) {
+            layoutJson[name] = { {"x", pos.x}, {"y", pos.y} };
+        }
+        data["layout"] = layoutJson;
+    }
+
+    std::ofstream file(filePath);
+    if (!file.is_open()) {
+        Log::Error("AnimationStateMachine: failed to open '{}' for writing", filePath);
+        return false;
+    }
+    file << data.dump(2);
+    Log::Info("AnimationStateMachine: saved '{}'", filePath);
+    return true;
 }
 
 } // namespace AnimationStateMachineLoader

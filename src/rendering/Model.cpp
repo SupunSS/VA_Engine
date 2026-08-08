@@ -238,7 +238,9 @@ std::shared_ptr<Animation> Model::LoadAnimation(const std::string& path) {
         return nullptr;
     }
 
-    return std::make_shared<Animation>(scene, scene->mAnimations[0], m_BoneInfoMap, m_BoneCount);
+    auto animation = std::make_shared<Animation>(scene, scene->mAnimations[0], m_BoneInfoMap, m_BoneCount);
+    animation->SetSourcePath(path);
+    return animation;
 }
 
 void Model::Draw(const Shader& shader, const Material* overrideMaterial) const {

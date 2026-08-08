@@ -75,6 +75,7 @@ add_library(va_engine_core STATIC
     src/core/AssetPaths.cpp
     src/rendering/AnimationStateMachine.cpp
     src/rendering/AnimationStateMachineLoader.cpp
+    src/audio/FootstepClipLoader.cpp
 )
 
 target_include_directories(va_engine_core PUBLIC

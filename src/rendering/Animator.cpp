@@ -5,14 +5,18 @@
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+
 Animator::Animator() {
     m_FinalBoneMatrices.resize(MAX_BONES, glm::mat4(1.0f));
 }
 
 void Animator::PlayAnimation(std::shared_ptr<Animation> animation, float blendDuration) {
+
+    if (m_PreviewMode) return;
     if (animation == m_CurrentAnimation) {
         return; // already playing this clip — avoid restarting/re-blending on redundant calls
     }
+
 
     if (blendDuration > 0.0f && m_CurrentAnimation) {
         // NOTE: if a new PlayAnimation arrives while already mid-blend, the
@@ -38,6 +42,7 @@ void Animator::PlayAnimation(std::shared_ptr<Animation> animation, float blendDu
 }
 
 void Animator::UpdateAnimation(float deltaTime) {
+    if (m_PreviewMode) return;
     if (!m_CurrentAnimation) return;
 
     m_CurrentTime += m_CurrentAnimation->GetTicksPerSecond() * deltaTime;
@@ -117,4 +122,40 @@ void Animator::CalculateBoneTransform(const AssimpNodeData* node, glm::mat4 pare
     for (int i = 0; i < node->childrenCount; ++i) {
         CalculateBoneTransform(&node->children[i], globalTransform);
     }
+}
+
+void Animator::FireEventsInRange(float previousNormalizedTime, float currentNormalizedTime, bool looped) {
+    const auto& events = m_CurrentAnimation->GetEvents();
+
+    for (const auto& event : events) {
+        bool crossed = false;
+        if (!looped) {
+            // Normal case: fire if the event's timestamp falls within
+            // (previous, current].
+            crossed = event.NormalizedTime > previousNormalizedTime &&
+                      event.NormalizedTime <= currentNormalizedTime;
+        } else {
+            // Looped this frame: the playhead wrapped from near 1.0 back
+            // to near 0.0. An event fires if it falls in EITHER the tail
+            // (previous, 1.0] or the head [0.0, current] of that wrap —
+            // without this, events sitting right at the loop point would
+            // never fire, since previousNormalizedTime > currentNormalizedTime
+            // and a naive single-range check would always be false.
+            crossed = event.NormalizedTime > previousNormalizedTime ||
+                      event.NormalizedTime <= currentNormalizedTime;
+        }
+
+        if (crossed) {
+            m_EventCallback(event.Name);
+        }
+    }
+}
+
+void Animator::ScrubToNormalizedTime(std::shared_ptr<Animation> animation, float normalizedTime) {
+    if (!animation) return;
+    m_CurrentAnimation = animation;
+    m_IsBlending = false;
+    m_PreviousAnimation = nullptr;
+    m_CurrentTime = glm::clamp(normalizedTime, 0.0f, 1.0f) * animation->GetDuration();
+    CalculateBoneTransform(&animation->GetRootNode(), glm::mat4(1.0f));
 }

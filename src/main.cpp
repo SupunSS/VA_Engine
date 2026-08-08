@@ -51,6 +51,7 @@
 #include "core/AssetPaths.h"
 #include "rendering/AnimationStateMachine.h"
 #include "rendering/AnimationStateMachineLoader.h"
+#include "audio/FootstepClipLoader.h"
 
 namespace {
 struct WindowUserData {
@@ -357,11 +358,12 @@ int main() {
     scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
 
     scene.Registry.emplace<MovementState>(playerEntity);
-    AudioClipId sfxFootstepWalk = AudioEngine::Get().LoadClip(AssetPaths::Resolve(AssetPaths::Category::Audio, "sfx/footstep_walk.wav"));
-    AudioClipId sfxFootstepRun  = AudioEngine::Get().LoadClip(AssetPaths::Resolve(AssetPaths::Category::Audio, "sfx/footstep_run.wav"));
     auto& playerFootsteps = scene.Registry.emplace<FootstepAudio>(playerEntity);
-    playerFootsteps.WalkStepClip = sfxFootstepWalk;
-    playerFootsteps.RunStepClip  = sfxFootstepRun;
+    playerFootsteps.WalkStepClips = FootstepClipLoader::LoadNumberedSequence("sfx/Steps_floor-", 1, 21, ".wav", 3);
+    // No separate run clips — reuses the same pool for both walk and run
+    // (PickRandomFootstepClip falls back to WalkStepClips when RunStepClips
+    // is empty). Add a dedicated RunStepClips pool later if you get
+    // sprint-specific footstep audio.
 
     auto playerVisualEntity = scene.CreateEntity();
     auto& playerVisualTransform = scene.Registry.get<Transform>(playerVisualEntity);
@@ -375,13 +377,15 @@ int main() {
     auto playerIdleAnim = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Idle.fbx"));
     auto playerWalkAnim = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Walking.fbx"));
     auto playerRunAnim  = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Running.fbx"));
-
+    
+    
     Animator playerAnimator;
     playerAnimator.PlayAnimation(playerIdleAnim);
-
+    
     auto playerAnimStateMachinePtr = AnimationStateMachineLoader::LoadFromFile("player.json", *playerModel);
     ENGINE_ASSERT(playerAnimStateMachinePtr != nullptr, "Failed to load player animation state machine");
     AnimationStateMachine& playerAnimStateMachine = *playerAnimStateMachinePtr;
+    playerAnimStateMachine.SetInitialState("Idle");
 
     CharacterController characterController(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
     const glm::vec3 kPlayerSpawnPosition(0.0f, 1.0f, 0.0f);
@@ -470,6 +474,7 @@ int main() {
     // UI Visibility Toggle Flag
     bool showUI = true;
     bool f1WasPressed = false;
+    bool showPlayControlsWindow = true;
 
     float profileLogTimer = 0.0f;
     auto profileStart = []() { return std::chrono::high_resolution_clock::now(); };
@@ -526,6 +531,14 @@ int main() {
         scene.Registry.get<Transform>(playerEntity).Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
         playerAnimStateMachine.SetInitialState("Idle");
+
+       // Footstep events — these normalized timestamps are what
+       // AudioSystem::UpdateFootsteps listens for once it registers this
+       // Animator's event callback (see AudioSystem.cpp). Tune these two
+       // numbers by ear against the actual Walking.fbx clip.
+       playerWalkAnim->AddEvent("footstep_left", 0.15f);
+       playerWalkAnim->AddEvent("footstep_right", 0.65f);
+
         playerAnimator.PlayAnimation(playerIdleAnim);
 
         camera.Position = kInitialCameraPosition;
@@ -1407,9 +1420,9 @@ int main() {
 
         // 2. Editor Windows & Tools (Toggled on/off using F1)
         if (showUI) {
-            {
+            if (showPlayControlsWindow) {
                 ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_FirstUseEver);
-                ImGui::Begin("Play Controls");
+                ImGui::Begin("Play Controls", &showPlayControlsWindow);
                 ImGui::Text("Status: %s", playMode ? "Playing" : "Stopped");
                 ImGui::Separator();
                 static float masterVolume = 1.0f;
@@ -1437,6 +1450,32 @@ int main() {
             editorUI.DrawAssetBrowser(scene);
             editorUI.DrawPhysicsPanel(scene, physicsWorld);
             editorUI.DrawScriptEditorPanel(scriptEngine);
+            editorUI.DrawAnimationPanel(scene, playerAnimStateMachinePtr.get(), &playerAnimator);
+            
+// --- Animator Editor (full authoring) --------------------------
+            std::vector<AnimatorEditTarget> animatorEditTargets;
+            animatorEditTargets.push_back({
+                "player", "Player",
+                playerAnimStateMachinePtr.get(),
+                &playerAnimator,
+                playerModel
+            });
+
+            if (editorUI.SelectedEntity != entt::null && scene.Registry.valid(editorUI.SelectedEntity) &&
+                scene.Registry.all_of<AnimatorComponent>(editorUI.SelectedEntity)) {
+                auto& animComp = scene.Registry.get<AnimatorComponent>(editorUI.SelectedEntity);
+                if (animComp.StateMachine && animComp.AnimatorPtr) {
+                    std::string key = "entity_" + std::to_string(static_cast<uint32_t>(editorUI.SelectedEntity));
+                    animatorEditTargets.push_back({
+                        key, "Selected Entity",
+                        animComp.StateMachine.get(),
+                        animComp.AnimatorPtr.get(),
+                        animComp.SourceModel
+                    });
+                }
+            }
+
+            editorUI.DrawAnimatorEditorPanel(animatorEditTargets);
 
             VehicleController* activeVehiclePtr = nullptr;
             if (activeVehicleEntity != entt::null && scene.Registry.valid(activeVehicleEntity) && scene.Registry.all_of<VehicleComponent>(activeVehicleEntity)) {
