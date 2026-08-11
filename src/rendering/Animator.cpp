@@ -45,8 +45,23 @@ void Animator::UpdateAnimation(float deltaTime) {
     if (m_PreviewMode) return;
     if (!m_CurrentAnimation) return;
 
+    const float duration = m_CurrentAnimation->GetDuration();
+    const float previousTime = m_CurrentTime;
+    const float previousNormalizedTime = duration > 0.0f ? previousTime / duration : 0.0f;
+
     m_CurrentTime += m_CurrentAnimation->GetTicksPerSecond() * deltaTime;
-    m_CurrentTime = fmod(m_CurrentTime, m_CurrentAnimation->GetDuration());
+
+    // Detect the wrap BEFORE applying fmod — this is what lets
+    // FireEventsInRange distinguish "played straight through" from
+    // "looped this frame" and check both halves of the wrapped range.
+    const bool looped = duration > 0.0f && m_CurrentTime >= duration;
+    m_CurrentTime = duration > 0.0f ? fmod(m_CurrentTime, duration) : 0.0f;
+
+    const float currentNormalizedTime = duration > 0.0f ? m_CurrentTime / duration : 0.0f;
+
+    if (m_EventCallback) {
+        FireEventsInRange(previousNormalizedTime, currentNormalizedTime, looped);
+    }
 
     if (m_IsBlending && m_PreviousAnimation) {
         m_PreviousTime += m_PreviousAnimation->GetTicksPerSecond() * deltaTime;
@@ -125,22 +140,16 @@ void Animator::CalculateBoneTransform(const AssimpNodeData* node, glm::mat4 pare
 }
 
 void Animator::FireEventsInRange(float previousNormalizedTime, float currentNormalizedTime, bool looped) {
+    if (!m_EventCallback || !m_CurrentAnimation) return; // defensive — should already be guarded by the caller
+
     const auto& events = m_CurrentAnimation->GetEvents();
 
     for (const auto& event : events) {
         bool crossed = false;
         if (!looped) {
-            // Normal case: fire if the event's timestamp falls within
-            // (previous, current].
             crossed = event.NormalizedTime > previousNormalizedTime &&
                       event.NormalizedTime <= currentNormalizedTime;
         } else {
-            // Looped this frame: the playhead wrapped from near 1.0 back
-            // to near 0.0. An event fires if it falls in EITHER the tail
-            // (previous, 1.0] or the head [0.0, current] of that wrap —
-            // without this, events sitting right at the loop point would
-            // never fire, since previousNormalizedTime > currentNormalizedTime
-            // and a naive single-range check would always be false.
             crossed = event.NormalizedTime > previousNormalizedTime ||
                       event.NormalizedTime <= currentNormalizedTime;
         }

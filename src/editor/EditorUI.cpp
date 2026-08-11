@@ -35,7 +35,12 @@
 #include "../rendering/AnimationStateMachine.h"
 #include "../rendering/AnimationStateMachineLoader.h"
 #include "../rendering/Model.h"
+#include "../rendering/Shader.h"
 #include <functional>
+#include <cmath>
+#include "EditorCommands.h"
+#include "../scene/TerrainSystem.h"
+
 namespace {
 constexpr const char* kAssetPayloadType = "VA_ASSET_PATH";
 
@@ -276,9 +281,24 @@ void EditorUI::Initialize(GLFWwindow* window) {
     m_glVersion = version != nullptr ? version : "Unknown";
     m_glslVersion = glslVersion != nullptr ? glslVersion : "Unknown";
     m_hardwareConcurrency = std::max(1u, std::thread::hardware_concurrency());
+
+    // Reuses the same shader main.cpp's game viewport uses for skinned
+    // meshes, so the Animator Editor's preview looks/lights consistently
+    // with how the model actually appears in-game.
+    m_previewShader = std::make_unique<Shader>(
+        AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.vert"),
+        AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.frag"));
 }
 
+
 void EditorUI::Shutdown() {
+    if (m_previewFBO != 0) {
+        glDeleteFramebuffers(1, &m_previewFBO);
+        glDeleteTextures(1, &m_previewColorTexture);
+        glDeleteRenderbuffers(1, &m_previewDepthRBO);
+        m_previewFBO = 0;
+    }
+
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -666,9 +686,11 @@ bool EditorUI::AddAssetToScene(Scene& scene, const std::filesystem::path& assetP
     }
 
     auto model = SceneLoader::GetOrLoadModel(normalizedPath.string());
-    entt::entity entity = scene.CreateEntity();
-    scene.Registry.emplace<MeshRenderer>(entity, model);
-    SelectedEntity = entity;
+
+    auto command = std::make_unique<CreateEntityCommand>(scene, model, glm::vec3(0.0f));
+    CreateEntityCommand* commandPtr = command.get(); // safe: Execute() moves ownership, not the object itself
+    m_commandHistory.Execute(std::move(command));
+    SelectedEntity = commandPtr->GetEntity();
 
     m_assetStatusMessage = "Added " + normalizedPath.filename().string() + " to the scene";
     return true;
@@ -736,8 +758,25 @@ void EditorUI::DrawMenuBar() {
             ImGui::MenuItem("Culling Debug Overlay", nullptr, &ShowCullingDebugOverlay);
             ImGui::MenuItem("Save / Load", nullptr, &ShowSaveLoadPanel);
             ImGui::MenuItem("Animation", nullptr, &ShowAnimationPanel);
+            ImGui::MenuItem("Animator Preview", nullptr, &ShowAnimatorPreview);
+            ImGui::MenuItem("Terrain Sculpting", nullptr, &ShowTerrainPanel);
             ImGui::Separator();
             ImGui::MenuItem("Stats Overlay", "Alt+R", &ShowStatsOverlay);
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Edit")) {
+            char undoLabel[64];
+            std::snprintf(undoLabel, sizeof(undoLabel), "Undo %s", PeekUndoLabel());
+            if (ImGui::MenuItem(undoLabel, "Ctrl+Z", false, CanUndo())) {
+                Undo();
+            }
+
+            char redoLabel[64];
+            std::snprintf(redoLabel, sizeof(redoLabel), "Redo %s", PeekRedoLabel());
+            if (ImGui::MenuItem(redoLabel, "Ctrl+Y", false, CanRedo())) {
+                Redo();
+            }
             ImGui::EndMenu();
         }
 
@@ -778,6 +817,7 @@ void EditorUI::ApplyWorkspace(Workspace workspace) {
             ShowSaveLoadPanel = true;
             ShowScriptEditorPanel = true;
             ShowCullingDebugOverlay = true;
+            ShowTerrainPanel = true;
             break;
 
         case Workspace::Scripter:
@@ -794,6 +834,7 @@ void EditorUI::ApplyWorkspace(Workspace workspace) {
             ShowScriptEditorPanel = true;
             ShowStatsOverlay = true;
             ShowCullingDebugOverlay = false;
+            ShowTerrainPanel = false;
             break;
 
         case Workspace::LevelDesigner:
@@ -809,6 +850,7 @@ void EditorUI::ApplyWorkspace(Workspace workspace) {
             ShowSaveLoadPanel = true;
             ShowScriptEditorPanel = false;
             ShowCullingDebugOverlay = false;
+            ShowTerrainPanel = true;
             break;
         
         case Workspace::Animation:
@@ -830,6 +872,7 @@ void EditorUI::ApplyWorkspace(Workspace workspace) {
             ShowAnimationPanel = true;    // read-only debug view alongside the full editor
             ShowAnimatorEditor = true;    // the star of this workspace
             ShowCullingDebugOverlay = false;
+            ShowTerrainPanel = false;
             break;
     }
 }
@@ -1570,7 +1613,13 @@ void EditorUI::DrawTransformGizmo(Scene& scene, PhysicsWorld& physicsWorld, cons
         glm::value_ptr(model)
     );
 
-    if (ImGuizmo::IsUsing()) {
+    const bool isUsingNow = ImGuizmo::IsUsing();
+
+    if (isUsingNow && !m_gizmoWasUsing) {
+        m_gizmoDragStartTransform = transform; // drag just started — snapshot before any edit
+    }
+
+    if (isUsingNow) {
         float translationValues[3];
         float rotationValues[3];
         float scaleValues[3];
@@ -1580,16 +1629,6 @@ void EditorUI::DrawTransformGizmo(Scene& scene, PhysicsWorld& physicsWorld, cons
         transform.Rotation = glm::quat(glm::radians(glm::vec3(rotationValues[0], rotationValues[1], rotationValues[2])));
         transform.Scale = glm::vec3(scaleValues[0], scaleValues[1], scaleValues[2]);
 
-        // Teleport the physics body to match, so main.cpp's per-frame sync
-        // (transform.Position = physicsWorld.GetBodyPosition(...)) doesn't
-        // stomp this edit right back on the next physics step.
-        //
-        // NOTE: this only syncs Position/Rotation, not Scale. Jolt collision
-        // shapes aren't trivially resizable at runtime through
-        // BodyInterface — that needs recreating the shape, which isn't
-        // wired up here. So scaling a RigidBody entity with the gizmo will
-        // resize it visually but its collider stays its original size until
-        // that's added.
         if (scene.Registry.all_of<RigidBody>(SelectedEntity)) {
             auto& rigidBody = scene.Registry.get<RigidBody>(SelectedEntity);
             if (!rigidBody.BodyId.IsInvalid()) {
@@ -1600,14 +1639,6 @@ void EditorUI::DrawTransformGizmo(Scene& scene, PhysicsWorld& physicsWorld, cons
             }
         }
 
-        // Vehicles use VehicleComponent (a chassis body owned internally by
-        // VehicleController), not RigidBody — so the block above never
-        // fires for them. Without this, main.cpp's per-frame chassis sync
-        // (transform.Position = vehicleComp.Controller->GetChassisTransform(...))
-        // would immediately snap the vehicle right back to wherever Jolt's
-        // chassis body actually is, making the gizmo look like it does
-        // nothing — it moves the Transform for one frame, then the very
-        // next frame's vehicle sync overwrites it right back.
         if (scene.Registry.all_of<VehicleComponent>(SelectedEntity)) {
             auto& vehicleComp = scene.Registry.get<VehicleComponent>(SelectedEntity);
             if (vehicleComp.Controller) {
@@ -1622,8 +1653,30 @@ void EditorUI::DrawTransformGizmo(Scene& scene, PhysicsWorld& physicsWorld, cons
         }
     }
 
+    if (!isUsingNow && m_gizmoWasUsing) {
+        // Drag just ended — push exactly one undo entry for the whole drag,
+        // not one per frame. Do() re-applies "after" (already true — the
+        // live edit above already set it), so this is idempotent, not a
+        // visible pop.
+        if (transform.Position != m_gizmoDragStartTransform.Position ||
+            transform.Scale != m_gizmoDragStartTransform.Scale ||
+            transform.Rotation != m_gizmoDragStartTransform.Rotation) {
+            m_commandHistory.Execute(std::make_unique<TransformEditCommand>(
+                scene, physicsWorld, SelectedEntity, m_gizmoDragStartTransform, transform));
+        }
+    }
+
+    m_gizmoWasUsing = isUsingNow;
+
     ImGui::End();
 }
+
+void EditorUI::Undo() { m_commandHistory.Undo(); }
+void EditorUI::Redo() { m_commandHistory.Redo(); }
+bool EditorUI::CanUndo() const { return m_commandHistory.CanUndo(); }
+bool EditorUI::CanRedo() const { return m_commandHistory.CanRedo(); }
+const char* EditorUI::PeekUndoLabel() const { return m_commandHistory.PeekUndoLabel(); }
+const char* EditorUI::PeekRedoLabel() const { return m_commandHistory.PeekRedoLabel(); }
 
 void EditorUI::HandleViewportClick(Scene& scene, const Camera& camera, float aspectRatio,
                                     double mouseX, double mouseY, int viewportWidth, int viewportHeight) {
@@ -1695,20 +1748,11 @@ void EditorUI::DeleteSelectedEntity(Scene& scene, PhysicsWorld& physicsWorld) {
         return;
     }
 
-    // Record the deletion as a persistent chunk delta BEFORE any teardown —
-    // this is what makes destroyed buildings/entities stay destroyed after
-    // the chunk streams out and back in, or after a save/load. No-ops
-    // safely for entities that aren't chunk-tagged (e.g. physics test props).
+    // See DeleteEntityCommand's class comment for the known limitation:
+    // this delta is not currently reverted by Undo.
     SceneLoader::RecordEntityDestructionDelta(scene, SelectedEntity);
 
-    if (scene.Registry.all_of<RigidBody>(SelectedEntity)) {
-        auto& rigidBody = scene.Registry.get<RigidBody>(SelectedEntity);
-        if (!rigidBody.BodyId.IsInvalid()) {
-            physicsWorld.DestroyBody(rigidBody.BodyId);
-        }
-    }
-
-    scene.DestroyEntity(SelectedEntity);
+    m_commandHistory.Execute(std::make_unique<DeleteEntityCommand>(scene, physicsWorld, SelectedEntity));
     SelectedEntity = entt::null;
 }
 
@@ -2025,6 +2069,8 @@ void EditorUI::DrawAnimationPanel(Scene& scene, AnimationStateMachine* playerSta
 }
 
 void EditorUI::DrawAnimatorEditorPanel(const std::vector<AnimatorEditTarget>& targets) {
+    DrawAnimatorPreviewWindow(targets);
+
     if (!ShowAnimatorEditor) return;
     ImGui::Begin("Animator Editor", &ShowAnimatorEditor);
 
@@ -2176,6 +2222,7 @@ void EditorUI::DrawStateGraphCanvas(const AnimatorEditTarget& target, AnimatorEd
 
     // Background catch-all first, so nodes/transitions added after it take
     // input priority wherever they overlap.
+    ImGui::SetNextItemAllowOverlap();
     ImGui::SetCursorScreenPos(canvasOrigin);
     ImGui::InvisibleButton("GraphCanvasBackground", canvasSize,
         ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
@@ -2257,6 +2304,7 @@ void EditorUI::DrawStateGraphCanvas(const AnimatorEditTarget& target, AnimatorEd
 
         const ImVec2 mid((from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f);
         ImGui::PushID(i);
+        ImGui::SetNextItemAllowOverlap();
         ImGui::SetCursorScreenPos(ImVec2(mid.x - 8.0f, mid.y - 8.0f));
         ImGui::InvisibleButton("TransitionHit", ImVec2(16.0f, 16.0f));
         if (ImGui::IsItemClicked()) {
@@ -2551,7 +2599,8 @@ void EditorUI::DrawAnimatorTimeline(const AnimatorEditTarget& target, AnimatorEd
     auto& mutableEvents = clip->GetEventsMutable();
     for (int i = 0; i < static_cast<int>(mutableEvents.size()); ++i) {
         ImGui::PushID(i);
-        ImGui::Text("%.2f", mutableEvents[i].NormalizedTime);
+        ImGui::SetNextItemWidth(90.0f);
+        ImGui::DragFloat("##EventTime", &mutableEvents[i].NormalizedTime, 0.001f, 0.0f, 1.0f, "%.3f");
         ImGui::SameLine();
         ImGui::TextUnformatted(mutableEvents[i].Name.c_str());
         ImGui::SameLine();
@@ -2563,13 +2612,267 @@ void EditorUI::DrawAnimatorTimeline(const AnimatorEditTarget& target, AnimatorEd
     ImGui::SetNextItemWidth(120.0f);
     ImGui::InputText("##NewEventName", state.NewEventName, sizeof(state.NewEventName));
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(100.0f);
-    ImGui::SliderFloat("##NewEventTime", &state.NewEventTime, 0.0f, 1.0f);
+    ImGui::SetNextItemWidth(90.0f);
+    ImGui::DragFloat("##NewEventTime", &state.NewEventTime, 0.001f, 0.0f, 1.0f, "%.3f");
     ImGui::SameLine();
-    if (ImGui::Button("+ Add Event") && state.NewEventName[0] != '\0') {
+
+    const bool nameEmpty = state.NewEventName[0] == '\0';
+    if (nameEmpty) ImGui::BeginDisabled();
+    if (ImGui::Button("+ Add Event")) {
         clip->AddEvent(state.NewEventName, state.NewEventTime);
-        state.NewEventName[0] = '\0';
+        // Name intentionally NOT cleared — footstep_left/footstep_right pairs
+        // (and similar near-duplicate names) are far more common than a
+        // totally new name each time, so keeping it lets you just nudge the
+        // time and click again. Clear it yourself if you want a blank field.
+    }
+    if (nameEmpty) {
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enter an event name first");
     }
 
     ImGui::EndChild();
+}
+
+void EditorUI::DrawAnimatorPreviewViewport(const AnimatorEditTarget& target, AnimatorEditorTargetState& state) {
+    ImGui::TextUnformatted("Preview");
+
+    if (!target.SourceModel || !target.AnimatorPtr) {
+        ImGui::TextDisabled("No model available to preview.");
+        return;
+    }
+
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    const int viewWidth = std::max(64, static_cast<int>(available.x));
+    const int viewHeight = std::max(64, static_cast<int>(available.y - 24.0f)); // leave room for the hint text below
+
+    if (m_previewFBO == 0 || m_previewFBOWidth != viewWidth || m_previewFBOHeight != viewHeight) {
+        if (m_previewFBO != 0) {
+            glDeleteFramebuffers(1, &m_previewFBO);
+            glDeleteTextures(1, &m_previewColorTexture);
+            glDeleteRenderbuffers(1, &m_previewDepthRBO);
+        }
+
+        m_previewFBOWidth = viewWidth;
+        m_previewFBOHeight = viewHeight;
+
+        glGenFramebuffers(1, &m_previewFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_previewFBO);
+
+        glGenTextures(1, &m_previewColorTexture);
+        glBindTexture(GL_TEXTURE_2D, m_previewColorTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, viewWidth, viewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_previewColorTexture, 0);
+
+        glGenRenderbuffers(1, &m_previewDepthRBO);
+        glBindRenderbuffer(GL_RENDERBUFFER, m_previewDepthRBO);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, viewWidth, viewHeight);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_previewDepthRBO);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    const glm::vec3 boundsMin = target.SourceModel->GetBoundsMin();
+    const glm::vec3 boundsMax = target.SourceModel->GetBoundsMax();
+    const glm::vec3 center = (boundsMin + boundsMax) * 0.5f;
+    const float radius = glm::length(boundsMax - boundsMin) * 0.5f;
+    if (state.PreviewDistance < 0.0f) {
+        state.PreviewDistance = radius > 0.0f ? radius * 2.5f : 3.0f;
+    }
+
+    // Orbit with left-click drag inside the preview, zoom with scroll —
+    // the InvisibleButton reserves the input region; the Image drawn right
+    // after it (same rect) is what's actually visible.
+    ImGui::InvisibleButton("PreviewOrbitCapture", ImVec2(static_cast<float>(viewWidth), static_cast<float>(viewHeight)));
+    const ImVec2 imagePos = ImGui::GetItemRectMin();
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        const ImVec2 delta = ImGui::GetIO().MouseDelta;
+        state.PreviewOrbitYaw += delta.x * 0.4f;
+        state.PreviewOrbitPitch = std::clamp(state.PreviewOrbitPitch + delta.y * 0.4f, -85.0f, 85.0f);
+    }
+    if (ImGui::IsItemHovered() && radius > 0.0f) {
+        state.PreviewDistance = std::max(0.1f, state.PreviewDistance - ImGui::GetIO().MouseWheel * radius * 0.1f);
+    }
+
+    const glm::vec3 eyeOffset(
+        std::cos(glm::radians(state.PreviewOrbitPitch)) * std::sin(glm::radians(state.PreviewOrbitYaw)),
+        std::sin(glm::radians(state.PreviewOrbitPitch)),
+        std::cos(glm::radians(state.PreviewOrbitPitch)) * std::cos(glm::radians(state.PreviewOrbitYaw)));
+    const glm::vec3 eye = center + eyeOffset * state.PreviewDistance;
+
+    const glm::mat4 view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 projection = glm::perspective(glm::radians(45.0f),
+        static_cast<float>(viewWidth) / static_cast<float>(viewHeight), 0.05f, radius * 20.0f + 10.0f);
+
+    GLint previousViewport[4];
+    glGetIntegerv(GL_VIEWPORT, previousViewport);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, m_previewFBO);
+    glViewport(0, 0, viewWidth, viewHeight);
+    glEnable(GL_DEPTH_TEST);
+    glClearColor(0.12f, 0.12f, 0.14f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    m_previewShader->Bind();
+    m_previewShader->SetMat4("uView", view);
+    m_previewShader->SetMat4("uProjection", projection);
+    m_previewShader->SetMat4("uModel", glm::mat4(1.0f));
+    m_previewShader->SetVec3("uViewPos", eye);
+    m_previewShader->SetVec3("uDirLightDirection", glm::vec3(-0.3f, -1.0f, -0.3f));
+    m_previewShader->SetVec3("uDirLightColor", glm::vec3(1.0f, 0.95f, 0.9f));
+    m_previewShader->SetVec3("uPointLightPos", eye);
+    m_previewShader->SetVec3("uPointLightColor", glm::vec3(0.2f, 0.2f, 0.2f));
+    m_previewShader->SetMat4Array("uBoneMatrices", target.AnimatorPtr->GetFinalBoneMatrices());
+
+    target.SourceModel->Draw(*m_previewShader, nullptr);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
+
+    ImGui::SetCursorScreenPos(imagePos);
+    ImGui::Image((void*)(intptr_t)m_previewColorTexture,
+                 ImVec2(static_cast<float>(viewWidth), static_cast<float>(viewHeight)),
+                 ImVec2(0, 1), ImVec2(1, 0));
+
+    ImGui::TextDisabled("Drag to orbit, scroll to zoom");
+}
+
+void EditorUI::DrawAnimatorPreviewWindow(const std::vector<AnimatorEditTarget>& targets) {
+    if (!ShowAnimatorPreview) return;
+
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 420.0f), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Animator Preview", &ShowAnimatorPreview);
+
+    std::vector<const AnimatorEditTarget*> valid;
+    for (const auto& t : targets) {
+        if (t.Machine && t.AnimatorPtr) valid.push_back(&t);
+    }
+
+    if (valid.empty()) {
+        ImGui::TextDisabled("No animatable target available.");
+        ImGui::End();
+        return;
+    }
+
+    // Keep the previous selection if it still exists; otherwise default to
+    // the first target (usually "Player").
+    const AnimatorEditTarget* selected = nullptr;
+    for (const auto* t : valid) {
+        if (t->Key == m_previewSelectedTargetKey) { selected = t; break; }
+    }
+    if (!selected) {
+        selected = valid.front();
+        m_previewSelectedTargetKey = selected->Key;
+    }
+
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::BeginCombo("##PreviewTargetSelect", selected->DisplayName.c_str())) {
+        for (const auto* t : valid) {
+            const bool isSelected = (t->Key == m_previewSelectedTargetKey);
+            if (ImGui::Selectable(t->DisplayName.c_str(), isSelected)) {
+                m_previewSelectedTargetKey = t->Key;
+                selected = t;
+            }
+            if (isSelected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Separator();
+
+    AnimatorEditorTargetState& state = m_animatorEditorState[selected->Key];
+    DrawAnimatorPreviewViewport(*selected, state);
+
+    ImGui::End();
+}
+
+void EditorUI::DrawTerrainPanel(TerrainSystem& terrain) {
+    (void)terrain;
+    if (!ShowTerrainPanel) return;
+    ImGui::Begin("Terrain Sculpting", &ShowTerrainPanel);
+
+    ImGui::Checkbox("Terrain Edit Mode (T)", &TerrainEditMode);
+    ImGui::TextDisabled(TerrainEditMode
+        ? "Left-click-drag on terrain to sculpt. Normal selection is disabled."
+        : "Enable to start sculpting. Viewport clicks select entities as usual.");
+
+    ImGui::Separator();
+    ImGui::RadioButton("Raise", &m_terrainBrushType, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("Lower", &m_terrainBrushType, 1);
+    ImGui::SameLine();
+    ImGui::RadioButton("Smooth", &m_terrainBrushType, 2);
+
+    ImGui::SliderFloat("Radius", &m_terrainBrushRadius, 0.5f, 30.0f, "%.1f");
+    ImGui::SliderFloat("Strength", &m_terrainBrushStrength, 0.1f, 10.0f, "%.1f");
+
+    ImGui::End();
+}
+
+void EditorUI::UpdateTerrainSculpting(TerrainSystem& terrain, const Camera& camera, float aspectRatio,
+                                       GLFWwindow* window, float deltaTime) {
+    if (!TerrainEditMode) {
+        if (m_terrainStrokeActive) {
+            // Edit mode was toggled off mid-drag — commit whatever happened so far rather than losing it silently.
+            m_terrainStrokeActive = false;
+            m_terrainStrokeChunk = nullptr;
+        }
+        return;
+    }
+
+    if (ImGui::GetIO().WantCaptureMouse) return; // clicking on a panel shouldn't sculpt
+
+    const bool mouseHeld = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    if (!mouseHeld) {
+        if (m_terrainStrokeActive && m_terrainStrokeChunk) {
+            auto afterHeights = m_terrainStrokeChunk->GetHeights();
+            if (afterHeights != m_terrainStrokeBeforeHeights) {
+                m_commandHistory.Execute(std::make_unique<TerrainStrokeCommand>(
+                    *m_terrainStrokeChunk, m_terrainStrokeBeforeHeights, afterHeights));
+            }
+        }
+        m_terrainStrokeActive = false;
+        m_terrainStrokeChunk = nullptr;
+        return;
+    }
+
+    double mouseX = 0.0, mouseY = 0.0;
+    glfwGetCursorPos(window, &mouseX, &mouseY);
+    int fbWidth = 0, fbHeight = 0;
+    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+    if (fbWidth <= 0 || fbHeight <= 0) return;
+
+    const float ndcX = (2.0f * static_cast<float>(mouseX)) / static_cast<float>(fbWidth) - 1.0f;
+    const float ndcY = 1.0f - (2.0f * static_cast<float>(mouseY)) / static_cast<float>(fbHeight);
+    const glm::mat4 proj = camera.GetProjectionMatrix(aspectRatio);
+    const glm::mat4 view = camera.GetViewMatrix();
+    const glm::mat4 invViewProj = glm::inverse(proj * view);
+    glm::vec4 nearPoint = invViewProj * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+    glm::vec4 farPoint = invViewProj * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+    nearPoint /= nearPoint.w;
+    farPoint /= farPoint.w;
+    const glm::vec3 rayDir = glm::normalize(glm::vec3(farPoint - nearPoint));
+
+    glm::vec3 hitPoint;
+    TerrainChunk* hitChunk = nullptr;
+    if (!terrain.RaycastTerrain(camera.Position, rayDir, 500.0f, hitPoint, &hitChunk) || !hitChunk) {
+        return;
+    }
+
+    if (!m_terrainStrokeActive) {
+        m_terrainStrokeActive = true;
+        m_terrainStrokeChunk = hitChunk;
+        m_terrainStrokeBeforeHeights = hitChunk->GetHeights();
+    }
+
+    // Stroke started on a different chunk than the cursor is now over —
+    // per the class comment on TerrainStrokeCommand/design doc §10, a
+    // single stroke stays scoped to the chunk it started on rather than
+    // silently switching (which would corrupt the before/after snapshot).
+    if (hitChunk != m_terrainStrokeChunk) return;
+
+    terrain.ApplyBrush(*m_terrainStrokeChunk, hitPoint,
+                        static_cast<TerrainSystem::BrushType>(m_terrainBrushType),
+                        m_terrainBrushRadius, m_terrainBrushStrength, deltaTime);
 }

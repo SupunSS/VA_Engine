@@ -37,10 +37,12 @@ add_library(va_engine_core STATIC
     src/rendering/Model.cpp
     src/rendering/Material.cpp
     src/rendering/Skybox.cpp
+    src/rendering/TerrainChunk.cpp
     src/scene/Components.cpp
     src/scene/Scene.cpp
     src/scene/SpatialGrid.cpp
     src/scene/SceneLoader.cpp
+    src/scene/TerrainSystem.cpp
     src/scripting/ScriptEngine.cpp
     src/scene/ChunkManager.cpp
     src/editor/EditorUI.cpp

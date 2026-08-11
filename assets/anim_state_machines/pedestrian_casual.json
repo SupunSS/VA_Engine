@@ -1,0 +1,22 @@
+{
+  "name": "pedestrian_casual",
+  "states": [
+    { "name": "Idle", "clip": "player/Idle.fbx", "blendIn": 0.35 },
+    { "name": "Walk", "clip": "player/Walking.fbx", "blendIn": 0.35 }
+  ],
+  "initialState": "Idle",
+  "transitions": [
+    {
+      "from": "*", "to": "Walk",
+      "conditions": [
+        { "param": "IsMoving", "type": "bool", "comp": "equals", "value": true }
+      ]
+    },
+    {
+      "from": "*", "to": "Idle",
+      "conditions": [
+        { "param": "IsMoving", "type": "bool", "comp": "equals", "value": false }
+      ]
+    }
+  ]
+}

@@ -18,7 +18,7 @@ struct CategoryDefault {
 // the project root (confirmed against EditorUI's kAssetFolders, and every
 // hardcoded path previously found in main.cpp/SceneLoader/SaveSystem) —
 // NOT nested under a separate "assets/" parent.
-constexpr std::array<CategoryDefault, 10> kDefaults = {{
+constexpr std::array<CategoryDefault, 11> kDefaults = {{
     { Category::Models,            "paths.models",            "models" },
     { Category::Textures,          "paths.textures",          "textures" },
     { Category::Audio,             "paths.audio",             "audio" },
@@ -29,6 +29,7 @@ constexpr std::array<CategoryDefault, 10> kDefaults = {{
     { Category::Config,            "paths.config",            "config" },
     { Category::Saves,             "paths.saves",             "saves" },
     { Category::AnimStateMachines, "paths.animStateMachines", "assets/anim_state_machines" },
+    { Category::Terrain,           "paths.terrain",           "assets/terrain" },
 }};
 
 const CategoryDefault& Lookup(Category category) {

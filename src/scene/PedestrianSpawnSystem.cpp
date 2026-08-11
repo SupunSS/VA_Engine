@@ -35,8 +35,7 @@ float RandomRange(float minVal, float maxVal) {
 // 40th pedestrian doesn't reload the model/animation from disk.
 struct PedestrianAssets {
     std::shared_ptr<Model> Model;
-    std::shared_ptr<Animation> IdleAnim;
-    std::shared_ptr<Animation> WalkAnim;
+    std::shared_ptr<Animation> IdleAnim; // fallback pose only — see SpawnOnePedestrian
     std::vector<AudioClipId> WalkStepClips;
     bool Loaded = false;
 };
@@ -45,8 +44,7 @@ PedestrianAssets& GetAssets(const Config& config) {
     static PedestrianAssets assets;
     if (!assets.Loaded) {
         assets.Model = SceneLoader::GetOrLoadModel(config.ModelPath);
-        assets.IdleAnim = assets.Model->LoadAnimation(config.IdleAnimPath);
-        assets.WalkAnim = assets.Model->LoadAnimation(config.WalkAnimPath);
+        assets.IdleAnim = assets.Model->LoadAnimation(config.IdleAnimPath); // still used as the anti-T-pose fallback
         assets.WalkStepClips = FootstepClipLoader::LoadNumberedSequence("sfx/Steps_floor-", 1, 21, ".wav", 3);
         assets.Loaded = true;
     }
@@ -98,27 +96,31 @@ void SpawnOnePedestrian(Scene& scene, const glm::vec3& viewerPosition, const Con
     auto& ai = scene.Registry.emplace<PedestrianAI>(entity);
     ai.PathWaypoints = waypoints;
     ai.CurrentWaypointIndex = closestIndex;
-    ai.MoveSpeed = 1.4f;
     ai.WaitTimer = 0.0f;
+    // ai.MoveSpeed is set below, once we know which archetype was picked —
+    // do not set a default here, so a missing archetype assignment (empty
+    // config.Archetypes) is obvious rather than silently defaulting to a
+    // plausible-looking 1.4f.
 
     auto& animComp = scene.Registry.emplace<AnimatorComponent>(entity);
     animComp.AnimatorPtr = std::make_shared<Animator>();
     animComp.IdleAnim = assets.IdleAnim;
-    animComp.WalkAnim = assets.WalkAnim;
     animComp.SourceModel = assets.Model;
 
     auto& footsteps = scene.Registry.emplace<FootstepAudio>(entity);
     footsteps.WalkStepClips = assets.WalkStepClips;
     footsteps.Volume = 0.4f;
 
-    // Play idle immediately at spawn — without this, the pedestrian's
-    // Play idle immediately at spawn — without this, the pedestrian's
-    // Animator has no active animation until PedestrianSystem::Update
-    // first switches it, which is exactly what produced the T-pose you
-    // saw: an entity that's rendered but has never had PlayAnimation
-    // called yet is stuck at its raw bind pose.
-    if (animComp.AnimatorPtr && animComp.IdleAnim) {
-        animComp.AnimatorPtr->PlayAnimation(animComp.IdleAnim);
+    // Randomly assign an archetype: state machine + matching move speed
+    // together, so they can never drift out of sync with each other.
+    if (!config.Archetypes.empty()) {
+        const size_t archetypeIndex = static_cast<size_t>(RandomRange(0.0f, static_cast<float>(config.Archetypes.size())));
+        const auto& archetype = config.Archetypes[std::min(archetypeIndex, config.Archetypes.size() - 1)];
+        animComp.StateMachinePath = archetype.StateMachinePath;
+        ai.MoveSpeed = archetype.MoveSpeed;
+    } else {
+        Log::Warn("PedestrianSpawnSystem: Config.Archetypes is empty — spawned pedestrian will have no animation transitions");
+        ai.MoveSpeed = 1.4f; // sane fallback so at least movement isn't broken
     }
 }
 }

@@ -67,6 +67,12 @@
 },
 {
   "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -I\"D:\\Projects\\VA Engine\\src\\engine\\public\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\va_engine_core.dir\\src\\rendering\\TerrainChunk.cpp.obj /FdCMakeFiles\\va_engine_core.dir\\va_engine_core.pdb /FS -c \"D:\\Projects\\VA Engine\\src\\rendering\\TerrainChunk.cpp\"",
+  "file": "D:/Projects/VA Engine/src/rendering/TerrainChunk.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/va_engine_core.dir/src/rendering/TerrainChunk.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
   "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -I\"D:\\Projects\\VA Engine\\src\\engine\\public\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\va_engine_core.dir\\src\\scene\\Components.cpp.obj /FdCMakeFiles\\va_engine_core.dir\\va_engine_core.pdb /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\Components.cpp\"",
   "file": "D:/Projects/VA Engine/src/scene/Components.cpp",
   "output": "D:/Projects/VA Engine/build-release/CMakeFiles/va_engine_core.dir/src/scene/Components.cpp.obj"
@@ -88,6 +94,12 @@
   "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -I\"D:\\Projects\\VA Engine\\src\\engine\\public\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\va_engine_core.dir\\src\\scene\\SceneLoader.cpp.obj /FdCMakeFiles\\va_engine_core.dir\\va_engine_core.pdb /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\SceneLoader.cpp\"",
   "file": "D:/Projects/VA Engine/src/scene/SceneLoader.cpp",
   "output": "D:/Projects/VA Engine/build-release/CMakeFiles/va_engine_core.dir/src/scene/SceneLoader.cpp.obj"
+},
+{
+  "directory": "D:/Projects/VA Engine/build-release",
+  "command": "\"D:\\Visual studio\\vs\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe\"  /nologo /TP -DGLFW_DLL -DGLM_ENABLE_EXPERIMENTAL -DJPH_FLOATING_POINT_EXCEPTIONS_ENABLED -DJPH_OBJECT_STREAM -DLUA_BUILD_AS_DLL -DNDEBUG -I\"D:\\Projects\\VA Engine\\src\" -I\"D:\\Projects\\VA Engine\\src\\engine\\public\" -external:I\"D:\\Projects\\VA Engine\\vcpkg\\installed\\x64-windows\\include\" -external:W0 /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD /FoCMakeFiles\\va_engine_core.dir\\src\\scene\\TerrainSystem.cpp.obj /FdCMakeFiles\\va_engine_core.dir\\va_engine_core.pdb /FS -c \"D:\\Projects\\VA Engine\\src\\scene\\TerrainSystem.cpp\"",
+  "file": "D:/Projects/VA Engine/src/scene/TerrainSystem.cpp",
+  "output": "D:/Projects/VA Engine/build-release/CMakeFiles/va_engine_core.dir/src/scene/TerrainSystem.cpp.obj"
 },
 {
   "directory": "D:/Projects/VA Engine/build-release",

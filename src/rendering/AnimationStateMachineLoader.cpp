@@ -96,6 +96,21 @@ std::shared_ptr<AnimationStateMachine> LoadFromFile(const std::string& filePath,
             return nullptr;
         }
 
+        // Restore any events (e.g. "footstep_left"/"footstep_right") that
+        // were authored for this clip via the Animator Editor and saved
+        // out by SaveToFile below. Without this, every reload silently
+        // drops events and event-driven systems (AudioSystem's footstep
+        // path) go quiet even though the JSON round-trips everything else.
+        if (stateEntry.contains("events")) {
+            for (const auto& eventEntry : stateEntry["events"]) {
+                const std::string eventName = eventEntry.value("name", "");
+                const float normalizedTime = eventEntry.value("time", 0.0f);
+                if (!eventName.empty()) {
+                    clip->AddEvent(eventName, normalizedTime);
+                }
+            }
+        }
+
         machine->AddState(name, clip, blendIn, clipPath);
         stateNames.insert(name);
     }
@@ -187,6 +202,20 @@ bool SaveToFile(const AnimationStateMachine& machine, const std::string& filePat
         stateJson["name"] = name;
         stateJson["clip"] = stateDef.ClipPath;
         stateJson["blendIn"] = stateDef.BlendInDuration;
+
+        if (stateDef.Clip) {
+            json eventsJson = json::array();
+            for (const auto& event : stateDef.Clip->GetEvents()) {
+                json eventJson;
+                eventJson["name"] = event.Name;
+                eventJson["time"] = event.NormalizedTime;
+                eventsJson.push_back(eventJson);
+            }
+            if (!eventsJson.empty()) {
+                stateJson["events"] = eventsJson;
+            }
+        }
+
         statesJson.push_back(stateJson);
     }
     data["states"] = statesJson;

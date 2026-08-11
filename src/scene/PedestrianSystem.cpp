@@ -15,17 +15,23 @@ constexpr float kArrivalRadius = 0.3f;       // "close enough" distance to count
 constexpr float kTurnSpeed = 8.0f;           // slerp rate facing the walk direction
 constexpr float kAnimBlendDuration = 0.25f;
 
-// Built once per entity, the first time it's needed — every pedestrian gets
-// an identical Idle<->Walk machine, so this is just wiring, not per-entity
-// authoring. If a future pedestrian type needs different states/transitions,
-// that's the point where this stops being one shared shape and becomes
-// data-driven per-prefab instead (see the planned JSON loader).
+// Built once per entity, the first time it's needed. Each pedestrian was
+// assigned an archetype JSON path at spawn (AnimatorComponent::StateMachinePath
+// — see PedestrianSpawnSystem), so different pedestrians can genuinely run
+// different state machines (different clips, different transition sets)
+// rather than all sharing one shape.
 void EnsureStateMachine(AnimatorComponent& animComp, Model& pedestrianModel) {
     if (animComp.StateMachine) return;
 
-    animComp.StateMachine = AnimationStateMachineLoader::LoadFromFile("pedestrian.json", pedestrianModel);
+    if (animComp.StateMachinePath.empty()) {
+        Log::Error("PedestrianSystem: entity has no StateMachinePath assigned — was it spawned via PedestrianSpawnSystem?");
+        return;
+    }
+
+    animComp.StateMachine = AnimationStateMachineLoader::LoadFromFile(animComp.StateMachinePath, pedestrianModel);
     if (!animComp.StateMachine) {
-        Log::Error("PedestrianSystem: failed to load pedestrian.json — this pedestrian will have no animation transitions");
+        Log::Error("PedestrianSystem: failed to load '{}' — this pedestrian will have no animation transitions",
+                   animComp.StateMachinePath);
     }
 }
 }
@@ -37,12 +43,6 @@ void Update(Scene& scene, float deltaTime, const glm::vec3& viewerPosition, floa
     for (auto entity : view) {
         auto& transform = view.get<Transform>(entity);
 
-        // Distance check FIRST, before touching AI state or the animator at
-        // all — this is what actually saves the cost. A pedestrian outside
-        // simulationRadius does nothing this frame: no waypoint math, no
-        // bone matrix recalculation, nothing. It simply resumes exactly
-        // where it left off once the viewer comes back within range, which
-        // reads fine since nobody was watching it in the meantime anyway.
         const glm::vec3 toViewer = transform.Position - viewerPosition;
         const float distSq = toViewer.x * toViewer.x + toViewer.y * toViewer.y + toViewer.z * toViewer.z;
         if (distSq > simulationRadiusSq) {
@@ -67,7 +67,7 @@ void Update(Scene& scene, float deltaTime, const glm::vec3& viewerPosition, floa
         } else {
             const glm::vec3& target = ai.PathWaypoints[ai.CurrentWaypointIndex];
             glm::vec3 toTarget = target - transform.Position;
-            toTarget.y = 0.0f; // horizontal distance/direction only — walking, not flying
+            toTarget.y = 0.0f;
             const float distance = glm::length(toTarget);
 
             if (distance <= kArrivalRadius) {

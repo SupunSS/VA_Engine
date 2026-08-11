@@ -15,6 +15,9 @@
 #include <unordered_map>
 #include <vector>
 #include <unordered_set>
+#include "Command.h"
+#include "../scene/Components.h"
+#include "../rendering/TerrainChunk.h"
 
 class Texture;
 class CharacterController; // used only by pointer here — full type comes from CharacterController.h in the .cpp
@@ -22,6 +25,8 @@ class ScriptEngine; // forward decl — only a reference is needed in the header
 class Animator;
 class AnimationStateMachine;
 class Model;
+class Shader;
+class TerrainSystem;
 
 enum class GizmoOperation {
     Translate,
@@ -57,6 +62,12 @@ struct AnimatorEditorTargetState {
     int SelectedTransitionIndex = -1;
     bool PreviewMode = false;
     float PreviewNormalizedTime = 0.0f;
+
+    // Live preview viewport camera — orbit/zoom state persists per target
+    // so switching tabs doesn't reset your framing each time.
+    float PreviewOrbitYaw = -30.0f;
+    float PreviewOrbitPitch = 20.0f;
+    float PreviewDistance = -1.0f; // <0 = not yet auto-framed to the model's bounds
 
     char NewStateName[64] = {};
     char NewStateClipPath[256] = {};
@@ -116,6 +127,17 @@ public:
     void DeleteSelectedEntity(Scene& scene, PhysicsWorld& physicsWorld);
     bool IsGizmoActive() const;
 
+    // --- Undo/Redo -------------------------------------------------------
+    // General-purpose, not scoped to any one tool (§9.1 of the Level Design
+    // System doc) — gizmo transforms, prop placement, and prop deletion all
+    // route through this same history.
+    void Undo();
+    void Redo();
+    bool CanUndo() const;
+    bool CanRedo() const;
+    const char* PeekUndoLabel() const;
+    const char* PeekRedoLabel() const;
+
     // --- Save / Load ---------------------------------------------------
     // Draws the Save/Load panel. Returns true if the user requested a save
     // or load action THIS frame — outSlotName is the chosen slot name,
@@ -142,6 +164,20 @@ public:
 
     GizmoOperation CurrentGizmoOperation = GizmoOperation::Translate;
 
+    void DrawTerrainPanel(TerrainSystem& terrain);
+
+    // Owns terrain-sculpting mouse interaction: while TerrainEditMode is
+    // on, left-click-drag raycasts against the terrain and applies the
+    // active brush, pushing exactly one undo entry per stroke (mouse-down
+    // to mouse-up), matching DrawTransformGizmo's drag-to-single-undo
+    // pattern. No-ops entirely while TerrainEditMode is off, so normal
+    // viewport selection/gizmo use is unaffected.
+    void UpdateTerrainSculpting(TerrainSystem& terrain, const Camera& camera, float aspectRatio,
+                                 GLFWwindow* window, float deltaTime);
+
+    bool ShowTerrainPanel = true;
+    bool TerrainEditMode = false;
+
     // --- Workspaces ---------------------------------------------------
     // Switches which panels are visible so each role only sees what's
     // relevant to their job. Does not touch docking/window positions —
@@ -157,6 +193,7 @@ public:
     void DrawAnimatorEditorPanel(const std::vector<AnimatorEditTarget>& targets);
 
     bool ShowAnimatorEditor = true;
+    bool ShowAnimatorPreview = true;
 
     entt::entity SelectedEntity = entt::null;
 
@@ -223,6 +260,19 @@ private:
     bool m_shouldOpenDeletePopup = false;
     std::string m_assetStatusMessage;
 
+    // --- Terrain sculpting state -------------------------------------
+    int m_terrainBrushType = 0; // 0=Raise, 1=Lower, 2=Smooth — matches TerrainSystem::BrushType ordering
+    float m_terrainBrushRadius = 5.0f;
+    float m_terrainBrushStrength = 3.0f;
+    bool m_terrainStrokeActive = false;
+    TerrainChunk* m_terrainStrokeChunk = nullptr;
+    std::vector<float> m_terrainStrokeBeforeHeights;
+
+    //undu redo system
+    CommandHistory m_commandHistory;
+    bool m_gizmoWasUsing = false;
+    Transform m_gizmoDragStartTransform;
+
     // --- Save / Load state -----------------------------------------------
     char m_saveSlotNameBuffer[128] = {};
     std::vector<std::string> m_cachedSaveSlots;
@@ -247,6 +297,20 @@ private:
     void DrawTransitionInspector(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
     void DrawBoneTree(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
     void DrawAnimatorTimeline(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
+    void DrawAnimatorPreviewViewport(const AnimatorEditTarget& target, AnimatorEditorTargetState& state);
+    void DrawAnimatorPreviewWindow(const std::vector<AnimatorEditTarget>& targets);
 
     std::unordered_map<std::string, AnimatorEditorTargetState> m_animatorEditorState;
+    std::string m_previewSelectedTargetKey; // which target the separate preview window shows
+
+    // Offscreen render target for the Animator Editor's live preview. One
+    // shared FBO is sufficient — ImGui only ever executes the currently
+    // active tab's contents each frame, so at most one target renders here
+    // per frame regardless of how many tabs exist.
+    std::unique_ptr<Shader> m_previewShader;
+    unsigned int m_previewFBO = 0;
+    unsigned int m_previewColorTexture = 0;
+    unsigned int m_previewDepthRBO = 0;
+    int m_previewFBOWidth = 0;
+    int m_previewFBOHeight = 0;
 };

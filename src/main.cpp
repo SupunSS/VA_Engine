@@ -52,6 +52,7 @@
 #include "rendering/AnimationStateMachine.h"
 #include "rendering/AnimationStateMachineLoader.h"
 #include "audio/FootstepClipLoader.h"
+#include "scene/TerrainSystem.h"
 
 namespace {
 struct WindowUserData {
@@ -379,13 +380,21 @@ int main() {
     auto playerRunAnim  = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Running.fbx"));
     
     
-    Animator playerAnimator;
-    playerAnimator.PlayAnimation(playerIdleAnim);
-    
+    auto playerAnimator = std::make_shared<Animator>();
+    playerAnimator->PlayAnimation(playerIdleAnim);
+
     auto playerAnimStateMachinePtr = AnimationStateMachineLoader::LoadFromFile("player.json", *playerModel);
     ENGINE_ASSERT(playerAnimStateMachinePtr != nullptr, "Failed to load player animation state machine");
     AnimationStateMachine& playerAnimStateMachine = *playerAnimStateMachinePtr;
     playerAnimStateMachine.SetInitialState("Idle");
+
+    // Attach the player's animator to the ECS so systems that iterate
+    // AnimatorComponent (e.g. AudioSystem's event-driven footstep path)
+    // pick up the player the same way they already do pedestrians.
+    auto& playerAnimComp = scene.Registry.emplace<AnimatorComponent>(playerEntity);
+    playerAnimComp.AnimatorPtr = playerAnimator;
+    playerAnimComp.StateMachine = playerAnimStateMachinePtr;
+    playerAnimComp.SourceModel = playerModel;
 
     CharacterController characterController(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
     const glm::vec3 kPlayerSpawnPosition(0.0f, 1.0f, 0.0f);
@@ -396,6 +405,9 @@ int main() {
     entt::entity activeVehicleEntity = entt::null;
 
     ChunkManager chunkManager(50.0f, 6);
+    TerrainSystem terrainSystem(50.0f, 33, 4); // chunkSize, resolution, loadRadius — chunkSize matches ChunkManager's
+    Shader terrainShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "terrain.vert"),
+                      AssetPaths::Resolve(AssetPaths::Category::Shaders, "terrain.frag"));
 
     ScriptEngine scriptEngine;
     scriptEngine.Initialize(&scene);
@@ -438,6 +450,10 @@ int main() {
     pedestrianSpawnConfig.SpawnRadius = 40.0f;
     pedestrianSpawnConfig.DespawnRadius = 70.0f;
     pedestrianSpawnConfig.ChunkSize = 50.0f;
+    pedestrianSpawnConfig.Archetypes = {
+        { "pedestrian_casual.json", 1.4f },
+        { "pedestrian_brisk.json", 2.6f }
+    };
 
     {
         auto ambientEntity = scene.CreateEntity();
@@ -468,8 +484,13 @@ int main() {
     bool spaceWasPressed = false;
     bool escWasPressed = false;
     bool deleteWasPressed = false;
+    bool tWasPressed = false;
+
     bool fWasPressed = false;
     bool f5WasPressed = false;
+    bool zWasPressed = false;
+    bool yWasPressed = false;
+    
 
     // UI Visibility Toggle Flag
     bool showUI = true;
@@ -531,15 +552,7 @@ int main() {
         scene.Registry.get<Transform>(playerEntity).Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
         playerAnimStateMachine.SetInitialState("Idle");
-
-       // Footstep events — these normalized timestamps are what
-       // AudioSystem::UpdateFootsteps listens for once it registers this
-       // Animator's event callback (see AudioSystem.cpp). Tune these two
-       // numbers by ear against the actual Walking.fbx clip.
-       playerWalkAnim->AddEvent("footstep_left", 0.15f);
-       playerWalkAnim->AddEvent("footstep_right", 0.65f);
-
-        playerAnimator.PlayAnimation(playerIdleAnim);
+        playerAnimator->PlayAnimation(playerIdleAnim);
 
         camera.Position = kInitialCameraPosition;
         camera.SetYawPitch(kInitialCameraYaw, kInitialCameraPitch);
@@ -722,6 +735,7 @@ int main() {
     CityLayoutConfig::LoadFromFile(AssetPaths::Resolve(AssetPaths::Category::Config, "city_layout.json"));
 
     chunkManager.Update(camera.Position, scene, physicsWorld, maxRenderDistance);
+    terrainSystem.Update(camera.Position);
 
     glfwShowWindow(window);
     glfwMaximizeWindow(window);
@@ -742,6 +756,20 @@ int main() {
         float currentTime = (float)glfwGetTime();
         float deltaTime = currentTime - lastFrameTime;
         lastFrameTime = currentTime;
+
+        // Clamp against huge deltaTime spikes (minimized/dragged window, a
+        // debugger breakpoint, an asset-load hitch, or a slow first frame).
+        // Unclamped, this can tunnel dynamic physics bodies through static
+        // geometry in a single Step() and feeds equally large jumps into
+        // animation/gameplay code. A full fixed-timestep accumulator would be
+        // the more thorough fix, but CharacterController::Update() and
+        // VehicleController::Update() are both called once per frame with
+        // this same deltaTime, and I don't have their .cpp bodies to confirm
+        // how they apply input to their Jolt bodies — decoupling physics
+        // substeps from those calls without that visibility risks a subtler
+        // desync. Clamping is the safe, contained fix.
+        constexpr float kMaxDeltaTime = 0.1f; // 10 FPS floor before slow-motion instead of instability
+        deltaTime = std::clamp(deltaTime, 0.0f, kMaxDeltaTime);
 
         glfwPollEvents();
 
@@ -818,6 +846,19 @@ int main() {
         }
         deleteWasPressed = deleteHeld;
 
+        const bool ctrlHeldForUndo = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                                      glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+        const bool zHeld = glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS;
+        const bool yHeld = glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS;
+        if (!playMode && ctrlHeldForUndo && zHeld && !zWasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
+            editorUI.Undo();
+        }
+        zWasPressed = zHeld;
+        if (!playMode && ctrlHeldForUndo && yHeld && !yWasPressed && !ImGui::GetIO().WantCaptureKeyboard) {
+            editorUI.Redo();
+        }
+        yWasPressed = yHeld;
+
         if (!playMode) {
             camera.ProcessKeyboard(w, s, a, d, deltaTime);
 
@@ -845,6 +886,10 @@ int main() {
         physicsWorld.Step(deltaTime);
         double ms_physicsStep = profileMs(t_physicsStep);
 
+        if (!playMode) {
+            editorUI.UpdateTerrainSculpting(terrainSystem, camera, aspectRatio, window, deltaTime);
+        }
+        
         glm::vec3 viewerPosition = camera.Position;
 
         const bool fHeld = !uiWantsKeyboard && glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
@@ -946,7 +991,7 @@ int main() {
 
                 playerAnimStateMachine.SetBool("IsMoving", glm::length(wishDir) > 0.001f);
                 playerAnimStateMachine.SetBool("IsRunning", characterController.Sprinting);
-                playerAnimStateMachine.Update(playerAnimator);
+                playerAnimStateMachine.Update(*playerAnimator);
 
                 glm::vec3 playerPos = characterController.GetPosition();
                 scene.Registry.get<Transform>(playerEntity).Position = playerPos;
@@ -983,11 +1028,17 @@ int main() {
                     if (vehicleComp.Controller) {
                         vehicleComp.Controller->Update(deltaTime, throttle, 0.0f, steer, handbrake);
 
+                        // chassisPos/chassisRot are only needed locally here
+                        // (camera target + the collision raycast just below).
+                        // This used to also write scene.Registry's Transform
+                        // for this entity directly — redundant, since the
+                        // authoritative vehicleView sync loop later this same
+                        // frame calls GetChassisTransform() again and writes
+                        // the same values. Same result either way (idempotent,
+                        // not conflicting), just wasted work every frame.
                         glm::vec3 chassisPos;
                         glm::quat chassisRot;
                         vehicleComp.Controller->GetChassisTransform(chassisPos, chassisRot);
-                        scene.Registry.get<Transform>(activeVehicleEntity).Position = chassisPos;
-                        scene.Registry.get<Transform>(activeVehicleEntity).Rotation = chassisRot;
 
                         vehicleCamera.SetTarget(chassisPos, chassisRot, vehicleComp.Controller->GetSpeedKmh(), deltaTime);
 
@@ -1010,7 +1061,7 @@ int main() {
         }
 
         float frameTime = playMode ? deltaTime : 0.0f;
-        playerAnimator.UpdateAnimation(frameTime);
+        playerAnimator->UpdateAnimation(frameTime);
 
         glBindFramebuffer(GL_FRAMEBUFFER, postProcess.hdrFBO);
         glViewport(0, 0, postProcess.fullWidth, postProcess.fullHeight);
@@ -1065,7 +1116,11 @@ int main() {
             frozenForward = glm::normalize(frozenForward);
 
             const glm::mat4 frozenView = glm::lookAt(frozenCameraPosition, frozenCameraPosition + frozenForward, glm::vec3(0.0f, 1.0f, 0.0f));
-            frozenViewProjection = camera.GetProjectionMatrix(aspectRatio) * frozenView;
+            // Was always camera.GetProjectionMatrix(...) — the editor camera's
+            // projection specifically, regardless of whether followCamera or
+            // vehicleCamera is actually active this frame. activeProjection is
+            // already computed above, correctly per-mode — use that instead.
+            frozenViewProjection = activeProjection * frozenView;
         } else {
             frozenViewProjection = activeViewProjection;
             frozenCameraPosition = activeCameraPos;
@@ -1083,6 +1138,8 @@ int main() {
         constexpr float kDirLightIntensity = 0.7f;
         const glm::vec3 dirLightColor = ComputeSunLightColor(-kDirLightDirection) * kDirLightIntensity;
 
+        terrainSystem.Render(terrainShader, activeView, activeProjection, activeCameraPos, kDirLightDirection, dirLightColor);
+
         triangleShader.Bind();
         triangleShader.SetMat4("uView", activeView);
         triangleShader.SetMat4("uProjection", activeProjection);
@@ -1092,14 +1149,6 @@ int main() {
         triangleShader.SetVec3("uDirLightColor", dirLightColor);
         triangleShader.SetVec3("uPointLightPos", glm::vec3(1.5f, 1.5f, 1.5f));
         triangleShader.SetVec3("uPointLightColor", glm::vec3(1.0f, 0.8f, 0.5f));
-
-        auto t_spatialGrid = profileStart();
-        spatialGrid.Clear();
-        auto posView = scene.Registry.view<Transform>();
-        for (auto entity : posView) {
-            spatialGrid.Insert(entity, posView.get<Transform>(entity).Position);
-        }
-        double ms_spatialGrid = profileMs(t_spatialGrid);
 
         auto t_chunkUpdate = profileStart();
         chunkManager.Update(viewerPosition, scene, physicsWorld, maxRenderDistance);
@@ -1150,6 +1199,20 @@ int main() {
 
         PedestrianSystem::Update(scene, deltaTime, viewerPosition, pedestrianSimulationDistance);
         PedestrianSpawnSystem::Update(scene, viewerPosition, deltaTime, pedestrianSpawnConfig);
+
+        // Spatial grid rebuilt AFTER every system above that can move an
+        // entity this frame (physics sync, vehicle/wheel sync, pedestrian AI,
+        // chunk streaming). Previously this ran BEFORE those systems, so the
+        // grid — and therefore the culling query below, plus the vehicle
+        // enter/exit check earlier this frame — worked off one-step-stale
+        // positions for every rigid body, vehicle, and pedestrian.
+        auto t_spatialGrid = profileStart();
+        spatialGrid.Clear();
+        auto posView = scene.Registry.view<Transform>();
+        for (auto entity : posView) {
+            spatialGrid.Insert(entity, posView.get<Transform>(entity).Position);
+        }
+        double ms_spatialGrid = profileMs(t_spatialGrid);
 
         static float queryTimer = 0.0f;
         queryTimer += deltaTime;
@@ -1267,7 +1330,7 @@ int main() {
 
             if (entity == playerVisualEntity) {
                 triangleShader.SetMat4("uModel", worldMatrix);
-                triangleShader.SetMat4Array("uBoneMatrices", playerAnimator.GetFinalBoneMatrices());
+                triangleShader.SetMat4Array("uBoneMatrices", playerAnimator->GetFinalBoneMatrices());
                 renderer.ModelRef->Draw(triangleShader, renderer.MaterialRef ? renderer.MaterialRef.get() : nullptr);
                 continue;
             }
@@ -1450,14 +1513,15 @@ int main() {
             editorUI.DrawAssetBrowser(scene);
             editorUI.DrawPhysicsPanel(scene, physicsWorld);
             editorUI.DrawScriptEditorPanel(scriptEngine);
-            editorUI.DrawAnimationPanel(scene, playerAnimStateMachinePtr.get(), &playerAnimator);
+            editorUI.DrawAnimationPanel(scene, playerAnimStateMachinePtr.get(), playerAnimator.get());
+            editorUI.DrawTerrainPanel(terrainSystem);
             
 // --- Animator Editor (full authoring) --------------------------
             std::vector<AnimatorEditTarget> animatorEditTargets;
             animatorEditTargets.push_back({
                 "player", "Player",
                 playerAnimStateMachinePtr.get(),
-                &playerAnimator,
+                playerAnimator.get(),
                 playerModel
             });
 
@@ -1643,10 +1707,25 @@ int main() {
     DestroyPostProcessTargets(postProcess);
     glDeleteVertexArrays(1, &fullscreenVAO);
 
+    // Must run BEFORE the window/GL context is destroyed — it tears down
+    // ImGui's OpenGL backend (deletes GL objects, needs a live context) and
+    // its GLFW backend (ImGui_ImplGlfw_Shutdown references the GLFWwindow*
+    // directly). Previously this ran AFTER glfwDestroyWindow(), operating on
+    // an already-destroyed context/window.
+    editorUI.Shutdown();
+
     AudioEngine::Get().Shutdown();
 
+    // VAPublic::InitializeEngine() has a matching VAPublic::ShutdownEngine()
+    // (src/engine/Engine.cpp) that was never being called — this unwatches
+    // HotReloadManager, unloads PrefabManager, and shuts down the event
+    // system. Previously `engine` just leaked on exit with none of that
+    // cleanup running. Call before GLFW teardown since none of what it does
+    // depends on GLFW/GL being alive, so ordering here isn't load-bearing —
+    // just keeping it grouped with the rest of the shutdown sequence.
+    VAPublic::ShutdownEngine();
+
     glfwDestroyWindow(window);
-    editorUI.Shutdown();
     glfwTerminate();
 
     Log::Info("Engine shut down cleanly");

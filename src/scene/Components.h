@@ -90,17 +90,19 @@ struct AnimatorComponent {
     std::shared_ptr<Animator> AnimatorPtr;
     std::shared_ptr<Animation> IdleAnim;
     std::shared_ptr<Animation> WalkAnim;
-    
 
-    // Owns this entity's transition logic (Idle <-> Walk based on the
-    // "IsMoving" parameter). Constructed once, lazily, the first time
-    // PedestrianSystem needs it — see EnsureStateMachine() in
-    // PedestrianSystem.cpp — since Components.h shouldn't need to know
-    // how to wire up states/transitions itself.
     std::shared_ptr<AnimationStateMachine> StateMachine;
-    std::shared_ptr<Model> SourceModel; // needed so PedestrianSystem can (re)load animation state machine JSON via LoadAnimation()
-};
+    std::shared_ptr<Model> SourceModel;
 
+    // Which state machine JSON this specific entity should load (relative
+    // to the AnimStateMachines asset category, same format as
+    // AnimationStateMachineLoader::LoadFromFile's filePath argument).
+    // Empty means "not yet assigned" — EnsureStateMachine treats that as
+    // an error rather than silently defaulting, so a spawn-time bug shows
+    // up immediately in the log instead of every pedestrian quietly
+    // sharing one archetype.
+    std::string StateMachinePath;
+};
 // --- HUD-backing data ----------------------------------------------------
 // Real components with no gameplay system driving them yet (no damage
 // source, no weapons) — but the HUD reads live data from these rather than
