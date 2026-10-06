@@ -81,6 +81,11 @@ add_library(va_engine_core STATIC
     src/core/ProjectManager.cpp
     src/editor/FileDialog.cpp
     src/app/PostProcess.cpp
+    src/app/WindowUtils.cpp
+    src/app/Lighting.cpp
+    src/app/VehicleSpawner.cpp
+    src/app/PostProcess.cpp
+    src/app/Window.cpp
 )
 
 target_include_directories(va_engine_core PUBLIC

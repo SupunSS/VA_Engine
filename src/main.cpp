@@ -1,7 +1,5 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
 #include "core/Log.h"
 #include "core/Assert.h"
 #include "core/memory/StackAllocator.h"
@@ -54,124 +52,68 @@
 #include "audio/FootstepClipLoader.h"
 #include "scene/TerrainSystem.h"
 #include "app/PostProcess.h"
+#include "app/WindowUtils.h"
+#include "app/Lighting.h"
+#include "app/VehicleSpawner.h"
+#include "app/AppState.h"
+#include "app/Window.h"
 
-namespace {
-struct WindowUserData {
-    Camera* camera;
-    FollowCamera* followCamera;
-    VehicleCamera* vehicleCamera;
-    bool* playMode;
-    bool* insideVehicle;
-    float* aspectRatio;
-    EditorUI* editorUI;
-    bool* mouseLookEnabled;
-    bool* mouseLookNeedsReset;
-    double* lastCursorX;
-    double* lastCursorY;
-    bool* mouseLookDragged; // true once the mouse has moved noticeably since press
-    Scene* scene;           // needed so the mouse callback can run viewport picking
-};
 
-void SetCursorMode(GLFWwindow* window, int cursorMode, bool centerCursor)
-{
-    glfwSetInputMode(window, GLFW_CURSOR, cursorMode);
-
-    if (!centerCursor) {
-        return;
-    }
-
-    int windowWidth = 0;
-    int windowHeight = 0;
-    glfwGetWindowSize(window, &windowWidth, &windowHeight);
-    glfwSetCursorPos(window, windowWidth * 0.5, windowHeight * 0.5);
-}
-
-glm::vec3 ComputeSunLightColor(const glm::vec3& sunDirection)
-{
-    const glm::vec3 kRayleighCoeff(5.5e-6f, 13.0e-6f, 22.4e-6f);
-    const float kMieCoeff = 21e-6f * 1.1f;
-    const float kPathReference = 8000.0f;
-
-    float sinElevation = glm::max(sunDirection.y, 0.01f);
-    float pathLength = kPathReference / sinElevation;
-
-    glm::vec3 extinction = kRayleighCoeff + glm::vec3(kMieCoeff);
-    glm::vec3 transmittance(
-        std::exp(-extinction.x * pathLength),
-        std::exp(-extinction.y * pathLength),
-        std::exp(-extinction.z * pathLength));
-
-    const glm::vec3 kBaseSunColor(1.0f, 0.96f, 0.9f);
-    return kBaseSunColor * transmittance;
-}
-
-entt::entity SpawnTestVehicle(Scene& scene, PhysicsWorld& physicsWorld, const glm::vec3& position) {
-    constexpr float kHalfX = 0.9f;
-    constexpr float kHalfY = 0.4f;
-    constexpr float kHalfZ = 1.8f;
-    constexpr float kSpawnHeightOffset = 0.90f;
-
-    const glm::vec3 spawnPosition = position + glm::vec3(0.0f, kSpawnHeightOffset, 0.0f);
-
-    auto vehicleEntity = scene.CreateEntity();
-    scene.Registry.emplace<VehicleTag>(vehicleEntity);
-    scene.Registry.emplace<VehicleOccupant>(vehicleEntity);
-
-    auto& transform = scene.Registry.get<Transform>(vehicleEntity);
-    transform.Position = spawnPosition;
-    transform.Scale = glm::vec3(1.0f);
-
-    auto chassisModel = Primitives::CreateVehicleBody(kHalfX, kHalfY, kHalfZ, 1.1f);
-    auto chassisMaterial = std::make_shared<Material>();
-    chassisMaterial->albedoTint = glm::vec3(0.08f, 0.40f, 0.80f);
-    scene.Registry.emplace<MeshRenderer>(vehicleEntity, chassisModel, chassisMaterial);
-
-    auto controller = std::make_shared<VehicleController>(physicsWorld, spawnPosition);
-    auto& vehicleComp = scene.Registry.emplace<VehicleComponent>(vehicleEntity);
-    vehicleComp.Controller = controller;
-
-    AudioClipId engineClip = AudioEngine::Get().LoadClip(AssetPaths::Resolve(AssetPaths::Category::Audio, "sfx/vehicle_engine_loop.wav"));
-    auto& engineAudio = scene.Registry.emplace<VehicleEngineAudio>(vehicleEntity);
-    engineAudio.EngineLoopClip = engineClip;
-    engineAudio.Handle = AudioEngine::Get().CreateSource3D(
-        engineClip, position, true, true,
-        engineAudio.MinVolume, 3.0f, 60.0f);
-
-    constexpr float kWheelRadius = 0.35f;
-    constexpr float kWheelWidth  = 0.25f;
-    auto wheelModel = Primitives::CreateWheel(kWheelRadius, kWheelWidth, 16);
-
-    auto tyreMaterial = std::make_shared<Material>();
-    tyreMaterial->albedoTint = glm::vec3(0.12f, 0.12f, 0.12f);
-
-    auto rimMaterial = std::make_shared<Material>();
-    rimMaterial->albedoTint = glm::vec3(0.75f, 0.75f, 0.80f);
-
-    for (int i = 0; i < 4; ++i) {
-        auto wheelEntity = scene.CreateEntity();
-        scene.Registry.emplace<MeshRenderer>(wheelEntity, wheelModel, tyreMaterial);
-
-        glm::vec3 wheelPos;
-        glm::quat wheelRot;
-        controller->GetWheelTransform(i, wheelPos, wheelRot);
-
-        auto& wt = scene.Registry.get<Transform>(wheelEntity);
-        wt.Position = wheelPos;
-        wt.Rotation = wheelRot;
-        wt.Scale    = glm::vec3(1.0f);
-
-        vehicleComp.WheelEntities[i] = wheelEntity;
-    }
-
-    Log::Info("Spawned low-poly vehicle entity with 4 wheels at ({}, {}, {}).",
-              position.x, position.y, position.z);
-    return vehicleEntity;
-}
-
-} // namespace
 
 int main() {
     Log::Info("Engine starting up...");
+
+        AppState app;
+
+    // Aliases: let the rest of main() keep compiling unchanged while code moves
+    // into other files. Each alias is deleted when the code using it moves out.
+    float& aspectRatio = app.frame.aspectRatio;
+    int& lastKnownFramebufferWidth = app.frame.lastFramebufferWidth;
+    int& lastKnownFramebufferHeight = app.frame.lastFramebufferHeight;
+    float& lastFrameTime = app.frame.lastFrameTime;
+    float& profileLogTimer = app.frame.profileLogTimer;
+
+    bool& mouseLookEnabled = app.input.mouseLookEnabled;
+    bool& mouseLookNeedsReset = app.input.mouseLookNeedsReset;
+    bool& mouseLookDragged = app.input.mouseLookDragged;
+    double& lastCursorX = app.input.lastCursorX;
+    double& lastCursorY = app.input.lastCursorY;
+    bool& altRWasPressed = app.input.altRWasPressed;
+    bool& spaceWasPressed = app.input.spaceWasPressed;
+    bool& escWasPressed = app.input.escWasPressed;
+    bool& deleteWasPressed = app.input.deleteWasPressed;
+    bool& tWasPressed = app.input.tWasPressed;
+    bool& fWasPressed = app.input.fWasPressed;
+    bool& f5WasPressed = app.input.f5WasPressed;
+    bool& zWasPressed = app.input.zWasPressed;
+    bool& yWasPressed = app.input.yWasPressed;
+    bool& f1WasPressed = app.input.f1WasPressed;
+
+    bool& playMode = app.play.playMode;
+    bool& insideVehicle = app.play.insideVehicle;
+    entt::entity& activeVehicleEntity = app.play.activeVehicleEntity;
+    bool& blankWorld = app.play.blankWorld;
+    JPH::BodyID& blankFloorBodyId = app.play.blankFloorBodyId;
+
+    bool& showUI = app.editor.showUI;
+    bool& showPlayControlsWindow = app.editor.showPlayControlsWindow;
+
+    bool& freezeCullingFrustum = app.culling.freezeFrustum;
+    bool& freezeCullingFrustumWasEnabled = app.culling.freezeFrustumWasEnabled;
+    glm::mat4& frozenViewProjection = app.culling.frozenViewProjection;
+    glm::vec3& frozenCameraPosition = app.culling.frozenCameraPosition;
+    float& frozenFrustumYaw = app.culling.frozenYaw;
+    float& frozenFrustumPitch = app.culling.frozenPitch;
+    float& maxRenderDistance = app.culling.maxRenderDistance;
+    float& pedestrianSimulationDistance = app.culling.pedestrianSimulationDistance;
+    int& renderedEntityCount = app.culling.renderedCount;
+    int& culledEntityCount = app.culling.culledCount;
+    float& debugVehicleDistance = app.culling.debugVehicleDistance;
+    float& debugVehicleRadius = app.culling.debugVehicleRadius;
+    float& debugVehicleDepth = app.culling.debugVehicleDepth;
+    bool& debugVehicleWithinDistance = app.culling.debugVehicleWithinDistance;
+    bool& debugVehicleInsideFrustum = app.culling.debugVehicleInsideFrustum;
+    int& debugVisibleWheelCount = app.culling.debugVisibleWheelCount;
 
     StackAllocator stack(1024);
     auto marker = stack.GetMarker();
@@ -204,24 +146,14 @@ int main() {
         Log::Info("JobSystem test: {} jobs completed in {:.1f}ms (counter = {})", 8, elapsedMs, counter.load());
     }
 
-    ENGINE_ASSERT(glfwInit(), "GLFW failed to initialize");
+    GLFWwindow* window = CreateMainWindow();
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "VA Engine", nullptr, nullptr);
-    ENGINE_ASSERT(window != nullptr, "Failed to create GLFW window");
-
-    glfwMakeContextCurrent(window);
-    ENGINE_ASSERT(gladLoadGLLoader((GLADloadproc)glfwGetProcAddress), "Failed to initialize GLAD");
-
-    EditorUI editorUI;
+    app.editorObjects.ui = std::make_unique<EditorUI>();
+    EditorUI& editorUI = *app.editorObjects.ui;
     editorUI.Initialize(window);
     editorUI.ApplyWorkspace(Workspace::Full); // default on startup — devs switch via the Workspace menu
-    HUD hud;
+    app.editorObjects.hud = std::make_unique<HUD>();
+    HUD& hud = *app.editorObjects.hud;
     if (!AudioEngine::Get().Initialize()) {
         Log::Info("AudioEngine failed to initialize — continuing without audio.");
     }
@@ -232,31 +164,31 @@ int main() {
     glViewport(0, 0, width, height);
     glEnable(GL_DEPTH_TEST);
 
-    float aspectRatio = (float)width / (float)height;
-    bool mouseLookEnabled = false;
-    bool mouseLookNeedsReset = true;
-    bool mouseLookDragged = false;
-    double lastCursorX = 0.0;
-    double lastCursorY = 0.0;
+    aspectRatio = (float)width / (float)height;
 
-    Shader triangleShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.vert"),
+    app.render.triangleShader = std::make_unique<Shader>(AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.vert"),
                        AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.frag"));
-    Shader triangleInstancedShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle_instanced.vert"),
+    app.render.triangleInstancedShader = std::make_unique<Shader>(AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle_instanced.vert"),
                                 AssetPaths::Resolve(AssetPaths::Category::Shaders, "triangle.frag"));
-    Shader bloomThresholdShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
+    app.render.bloomThresholdShader = std::make_unique<Shader>(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
                              AssetPaths::Resolve(AssetPaths::Category::Shaders, "bloom_threshold.frag"));
-    Shader bloomBlurShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
+    app.render.bloomBlurShader = std::make_unique<Shader>(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
                         AssetPaths::Resolve(AssetPaths::Category::Shaders, "bloom_blur.frag"));
-    Shader bloomCompositeShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
+    app.render.bloomCompositeShader = std::make_unique<Shader>(AssetPaths::Resolve(AssetPaths::Category::Shaders, "sky.vert"),
                              AssetPaths::Resolve(AssetPaths::Category::Shaders, "bloom_composite.frag"));
+    Shader& triangleShader = *app.render.triangleShader;
+    Shader& triangleInstancedShader = *app.render.triangleInstancedShader;
+    Shader& bloomThresholdShader = *app.render.bloomThresholdShader;
+    Shader& bloomBlurShader = *app.render.bloomBlurShader;
+    Shader& bloomCompositeShader = *app.render.bloomCompositeShader;
 
-    GLuint fullscreenVAO = 0;
+    GLuint& fullscreenVAO = app.render.fullscreenVAO;
     glGenVertexArrays(1, &fullscreenVAO);
 
-    PostProcessTargets postProcess;
+    PostProcessTargets& postProcess = app.render.postProcess;
     CreatePostProcessTargets(postProcess, width, height);
-    int lastKnownFramebufferWidth = width;
-    int lastKnownFramebufferHeight = height;
+    lastKnownFramebufferWidth = width;
+    lastKnownFramebufferHeight = height;
 
     constexpr float kBloomThreshold = 1.6f;
     constexpr float kBloomKnee = 0.4f;
@@ -269,9 +201,12 @@ int main() {
 
     const glm::vec3 kDirLightDirection(-0.3f, -1.0f, -0.3f);
 
-    Scene scene;
-    SpatialGrid spatialGrid(50.0f);
-    PhysicsWorld physicsWorld;
+    app.world.scene = std::make_unique<Scene>();
+    app.world.spatialGrid = std::make_unique<SpatialGrid>(50.0f);
+    app.world.physicsWorld = std::make_unique<PhysicsWorld>();
+    Scene& scene = *app.world.scene;
+    SpatialGrid& spatialGrid = *app.world.spatialGrid;
+    PhysicsWorld& physicsWorld = *app.world.physicsWorld;
 
     auto playerEntity = scene.CreateEntity();
     scene.Registry.emplace<PlayerTag>(playerEntity);
@@ -317,23 +252,28 @@ int main() {
     playerAnimComp.StateMachine = playerAnimStateMachinePtr;
     playerAnimComp.SourceModel = playerModel;
 
-    CharacterController characterController(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
+    app.world.characterController = std::make_unique<CharacterController>(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
+    CharacterController& characterController = *app.world.characterController;
     const glm::vec3 kPlayerSpawnPosition(0.0f, 1.0f, 0.0f);
-    FollowCamera followCamera;
-    VehicleCamera vehicleCamera;
-    bool playMode = false;
-    bool insideVehicle = false;
-    entt::entity activeVehicleEntity = entt::null;
+    app.world.followCamera = std::make_unique<FollowCamera>();
+    app.world.vehicleCamera = std::make_unique<VehicleCamera>();
+    FollowCamera& followCamera = *app.world.followCamera;
+    VehicleCamera& vehicleCamera = *app.world.vehicleCamera;
 
-    ChunkManager chunkManager(50.0f, 6);
-    TerrainSystem terrainSystem(50.0f, 33, 4); // chunkSize, resolution, loadRadius — chunkSize matches ChunkManager's
-    Shader terrainShader(AssetPaths::Resolve(AssetPaths::Category::Shaders, "terrain.vert"),
+    app.world.chunkManager = std::make_unique<ChunkManager>(50.0f, 6);
+    app.world.terrainSystem = std::make_unique<TerrainSystem>(50.0f, 33, 4); // chunkSize, resolution, loadRadius — chunkSize matches ChunkManager's
+    ChunkManager& chunkManager = *app.world.chunkManager;
+    TerrainSystem& terrainSystem = *app.world.terrainSystem;
+    app.render.terrainShader = std::make_unique<Shader>(AssetPaths::Resolve(AssetPaths::Category::Shaders, "terrain.vert"),
                       AssetPaths::Resolve(AssetPaths::Category::Shaders, "terrain.frag"));
+    Shader& terrainShader = *app.render.terrainShader;
 
-    ScriptEngine scriptEngine;
+    app.world.scriptEngine = std::make_unique<ScriptEngine>();
+    ScriptEngine& scriptEngine = *app.world.scriptEngine;
     scriptEngine.Initialize(&scene);
 
-    Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+    app.world.camera = std::make_unique<Camera>(glm::vec3(0.0f, 0.0f, 3.0f));
+    Camera& camera = *app.world.camera;
 
     const glm::vec3 kInitialCameraPosition = camera.Position;
     const float kInitialCameraYaw = camera.GetYaw();
@@ -350,21 +290,13 @@ int main() {
 
     scriptEngine.RunScript(AssetPaths::Resolve(AssetPaths::Category::Scripts, "test.lua"));
 
-    GridRenderer gridRenderer;
-    Skybox skybox;
-
-    Frustum cullingFrustum;
-    FrustumRenderer frustumRenderer;
-    bool freezeCullingFrustum = false;
-    bool freezeCullingFrustumWasEnabled = false;
-    glm::mat4 frozenViewProjection(1.0f);
-    glm::vec3 frozenCameraPosition(0.0f);
-    float frozenFrustumYaw = -90.0f;
-    float frozenFrustumPitch = 0.0f;
-    float maxRenderDistance = 300.0f;
-    float pedestrianSimulationDistance = 60.0f;
-    int renderedEntityCount = 0;
-    int culledEntityCount = 0;
+    app.render.gridRenderer = std::make_unique<GridRenderer>();
+    app.render.skybox = std::make_unique<Skybox>();
+    app.render.frustumRenderer = std::make_unique<FrustumRenderer>();
+    GridRenderer& gridRenderer = *app.render.gridRenderer;
+    Skybox& skybox = *app.render.skybox;
+    Frustum& cullingFrustum = app.render.cullingFrustum;
+    FrustumRenderer& frustumRenderer = *app.render.frustumRenderer;
 
     PedestrianSpawnSystem::Config pedestrianSpawnConfig;
     pedestrianSpawnConfig.TargetPopulation = 40;
@@ -393,35 +325,6 @@ int main() {
             ambientSource.Volume, ambientSource.MinDistance, ambientSource.MaxDistance);
     }
 
-    float debugVehicleDistance = 0.0f;
-    float debugVehicleRadius = 0.0f;
-    float debugVehicleDepth = 0.0f;
-    bool debugVehicleWithinDistance = false;
-    bool debugVehicleInsideFrustum = false;
-    int debugVisibleWheelCount = 0;
-
-    float lastFrameTime = 0.0f;
-    bool altRWasPressed = false;
-    bool spaceWasPressed = false;
-    bool escWasPressed = false;
-    bool deleteWasPressed = false;
-    bool tWasPressed = false;
-
-    bool fWasPressed = false;
-    bool f5WasPressed = false;
-    bool zWasPressed = false;
-    bool yWasPressed = false;
-    
-
-    // UI Visibility Toggle Flag
-    bool showUI = true;
-    bool blankWorld = false;
-    bool f1WasPressed = false;
-    bool showPlayControlsWindow = true;
-
-    JPH::BodyID blankFloorBodyId; // default-constructed = invalid
-
-    float profileLogTimer = 0.0f;
     auto profileStart = []() { return std::chrono::high_resolution_clock::now(); };
     auto profileMs = [](auto start) {
         return std::chrono::duration<double, std::milli>(
@@ -539,177 +442,14 @@ int main() {
         blankWorld = true;
     };
 
-    WindowUserData userData{
-        &camera, &followCamera, &vehicleCamera, &playMode, &insideVehicle, &aspectRatio, &editorUI,
-        &mouseLookEnabled, &mouseLookNeedsReset, &lastCursorX, &lastCursorY,
-        &mouseLookDragged, &scene
-    };
-    glfwSetWindowUserPointer(window, &userData);
-
-    glfwSetCursorPosCallback(window, [](GLFWwindow* win, double xpos, double ypos) {
-        ImGuiIO& io = ImGui::GetIO();
-        io.AddMousePosEvent((float)xpos, (float)ypos);
-
-        auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
-
-        if (*userData->playMode) {
-            if (*userData->mouseLookNeedsReset) {
-                *userData->lastCursorX = xpos;
-                *userData->lastCursorY = ypos;
-                *userData->mouseLookNeedsReset = false;
-            }
-            float xOffset = (float)xpos - (float)*userData->lastCursorX;
-            float yOffset = (float)*userData->lastCursorY - (float)ypos;
-            *userData->lastCursorX = xpos;
-            *userData->lastCursorY = ypos;
-            if (*userData->insideVehicle) {
-                userData->vehicleCamera->ProcessMouseMovement(xOffset, yOffset);
-            } else {
-                userData->followCamera->ProcessMouseMovement(xOffset, yOffset);
-            }
-            return;
-        }
-
-        if (io.WantCaptureMouse) return;
-
-        Camera* cam = userData->camera;
-
-        if (!*userData->mouseLookEnabled) {
-            *userData->mouseLookNeedsReset = true;
-            return;
-        }
-
-        if (*userData->mouseLookNeedsReset) {
-            *userData->lastCursorX = xpos;
-            *userData->lastCursorY = ypos;
-            *userData->mouseLookNeedsReset = false;
-        }
-
-        float xOffset = (float)xpos - (float)*userData->lastCursorX;
-        float yOffset = (float)*userData->lastCursorY - (float)ypos;
-        *userData->lastCursorX = xpos;
-        *userData->lastCursorY = ypos;
-
-        if (std::abs(xOffset) > 1.0f || std::abs(yOffset) > 1.0f) {
-            *userData->mouseLookDragged = true;
-        }
-
-        cam->ProcessMouseMovement(xOffset, yOffset);
-    });
-
-    glfwSetMouseButtonCallback(window, [](GLFWwindow* win, int button, int action, int mods) {
-        ImGuiIO& io = ImGui::GetIO();
-        io.AddMouseButtonEvent(button, action == GLFW_PRESS);
-
-        auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
-
-        if (*userData->playMode) return;
-
-        if (io.WantCaptureMouse) {
-            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
-                *userData->mouseLookEnabled = false;
-                SetCursorMode(win, GLFW_CURSOR_NORMAL, false);
-            }
-            return;
-        }
-
-        if (button == GLFW_MOUSE_BUTTON_LEFT) {
-            if (action == GLFW_PRESS) {
-                *userData->mouseLookEnabled = true;
-                *userData->mouseLookNeedsReset = true;
-                *userData->mouseLookDragged = false;
-                SetCursorMode(win, GLFW_CURSOR_DISABLED, true);
-            } else if (action == GLFW_RELEASE) {
-                *userData->mouseLookEnabled = false;
-                SetCursorMode(win, GLFW_CURSOR_NORMAL, false);
-
-                if (!*userData->mouseLookDragged && !userData->editorUI->IsGizmoActive()) {
-                    double mouseX = 0.0, mouseY = 0.0;
-                    glfwGetCursorPos(win, &mouseX, &mouseY);
-                    int fbWidth = 0, fbHeight = 0;
-                    glfwGetFramebufferSize(win, &fbWidth, &fbHeight);
-                    userData->editorUI->HandleViewportClick(
-                        *userData->scene, *userData->camera, *userData->aspectRatio,
-                        mouseX, mouseY, fbWidth, fbHeight);
-                }
-            }
-        }
-    });
-
-    glfwSetScrollCallback(window, [](GLFWwindow* win, double xoffset, double yoffset) {
-        ImGuiIO& io = ImGui::GetIO();
-        io.AddMouseWheelEvent((float)xoffset, (float)yoffset);
-
-        if (io.WantCaptureMouse) return;
-
-        auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
-
-        if (*userData->playMode) {
-            if (*userData->insideVehicle) {
-                userData->vehicleCamera->ProcessScroll((float)yoffset);
-            } else {
-                userData->followCamera->ProcessScroll((float)yoffset);
-            }
-            return;
-        }
-
-        bool ctrlHeld = glfwGetKey(win, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
-                        glfwGetKey(win, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
-
-        if (ctrlHeld) {
-            float increment = (float)yoffset * userData->camera->GetMoveSpeed() * 0.1f;
-            userData->camera->AdjustMoveSpeed(increment);
-        }
-    });
-
-    glfwSetFramebufferSizeCallback(window, [](GLFWwindow* win, int newWidth, int newHeight) {
-        if (newHeight == 0) return;
-        glViewport(0, 0, newWidth, newHeight);
-
-        auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
-        *userData->aspectRatio = (float)newWidth / (float)newHeight;
-    });
-
-    glfwSetWindowFocusCallback(window, [](GLFWwindow* win, int focused) {
-        auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
-        if (userData == nullptr) {
-            return;
-        }
-
-        if (!focused) {
-            *userData->mouseLookEnabled = false;
-            *userData->mouseLookNeedsReset = true;
-        }
-
-        if (!(*userData->playMode)) {
-            SetCursorMode(win, GLFW_CURSOR_NORMAL, false);
-        }
-    });
-
-    glfwSetDropCallback(window, [](GLFWwindow* win, int count, const char** paths) {
-        auto* userData = static_cast<WindowUserData*>(glfwGetWindowUserPointer(win));
-        if (userData != nullptr && userData->editorUI != nullptr) {
-            userData->editorUI->QueueDroppedFiles(count, paths);
-        }
-    });
+    InstallWindowCallbacks(window, app);
 
     CityLayoutConfig::LoadFromFile(AssetPaths::Resolve(AssetPaths::Category::Config, "city_layout.json"));
 
     chunkManager.Update(camera.Position, scene, physicsWorld, maxRenderDistance);
     terrainSystem.Update(camera.Position);
 
-    glfwShowWindow(window);
-    glfwMaximizeWindow(window);
-    glfwFocusWindow(window);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-
-    HWND hwnd = glfwGetWin32Window(window);
-    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-
-    if (glfwRawMouseMotionSupported()) {
-        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-    }
+    ShowMainWindow(window);
 
     Log::Info("Window created successfully");
 
