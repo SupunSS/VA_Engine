@@ -40,6 +40,8 @@
 #include <cmath>
 #include "EditorCommands.h"
 #include "../scene/TerrainSystem.h"
+#include "../core/ProjectManager.h"
+#include "../editor/FileDialog.h"
 
 namespace {
 constexpr const char* kAssetPayloadType = "VA_ASSET_PATH";
@@ -257,8 +259,7 @@ bool RayIntersectsAABB(const glm::vec3& rayOrigin, const glm::vec3& rayDir,
 }
 
 void EditorUI::Initialize(GLFWwindow* window) {
-    m_projectRoot = std::filesystem::current_path();
-    m_currentAssetPath = m_projectRoot;
+    SyncProjectRootFromProjectManager();
     EnsureAssetDirectories();
 
     IMGUI_CHECKVERSION();
@@ -353,6 +354,11 @@ void EditorUI::EnsureAssetDirectories() {
             error.clear();
         }
     }
+}
+
+void EditorUI::SyncProjectRootFromProjectManager() {
+    m_projectRoot = ProjectManager::GetProjectRoot();
+    m_currentAssetPath = m_projectRoot;
 }
 
 void EditorUI::ImportPendingDroppedFiles() {
@@ -765,6 +771,27 @@ void EditorUI::DrawMenuBar() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Project")) {
+            const std::string activeName = ProjectManager::IsProjectOpen()
+                ? ProjectManager::GetProjectName()
+                : "(no project — using current folder)";
+            ImGui::TextDisabled("Active: %s", activeName.c_str());
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("New Project...")) {
+                m_newProjectParentDir[0] = '\0';
+                m_newProjectName[0] = '\0';
+                m_projectStatusMessage.clear();
+                m_shouldOpenNewProjectPopup = true;
+            }
+            if (ImGui::MenuItem("Open Project...")) {
+                m_openProjectPath[0] = '\0';
+                m_projectStatusMessage.clear();
+                m_shouldOpenProjectPopup = true;
+            }
+            ImGui::EndMenu();
+        }
+
         if (ImGui::BeginMenu("Edit")) {
             char undoLabel[64];
             std::snprintf(undoLabel, sizeof(undoLabel), "Undo %s", PeekUndoLabel());
@@ -797,6 +824,108 @@ void EditorUI::DrawMenuBar() {
         }
 
         ImGui::EndMainMenuBar();
+    }
+}
+
+void EditorUI::DrawProjectMenu() {
+    if (m_shouldOpenNewProjectPopup) {
+        ImGui::OpenPopup("NewProjectPopup");
+        m_shouldOpenNewProjectPopup = false;
+    }
+
+    if (m_shouldOpenProjectPopup) {
+        ImGui::OpenPopup("OpenProjectPopup");
+        m_shouldOpenProjectPopup = false;
+    }
+
+    if (ImGui::BeginPopupModal("NewProjectPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Create New Project");
+        ImGui::Separator();
+
+        ImGui::TextUnformatted("Parent Folder:");
+        ImGui::SetNextItemWidth(240.0f);
+        ImGui::InputText("##NewProjectParentDir", m_newProjectParentDir, sizeof(m_newProjectParentDir));
+        ImGui::SameLine();
+        if (ImGui::Button("Browse...##NewProjectBrowse", ImVec2(76.0f, 0.0f))) {
+            const std::string picked = VAEditor::BrowseForFolder("Select Parent Folder", m_newProjectParentDir);
+            if (!picked.empty()) {
+                std::strncpy(m_newProjectParentDir, picked.c_str(), sizeof(m_newProjectParentDir) - 1);
+                m_newProjectParentDir[sizeof(m_newProjectParentDir) - 1] = '\0';
+                m_projectStatusMessage.clear();
+            }
+        }
+
+        ImGui::TextUnformatted("Project Name:");
+        ImGui::SetNextItemWidth(320.0f);
+        ImGui::InputText("##NewProjectName", m_newProjectName, sizeof(m_newProjectName));
+
+        if (!m_projectStatusMessage.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "%s", m_projectStatusMessage.c_str());
+        }
+
+        if (ImGui::Button("Create", ImVec2(120.0f, 0.0f))) {
+            std::string error;
+            const std::filesystem::path parentDir = m_newProjectParentDir[0] != '\0'
+                ? std::filesystem::path(m_newProjectParentDir)
+                : std::filesystem::current_path();
+
+            if (ProjectManager::CreateNewProject(parentDir, m_newProjectName, error)) {
+                SyncProjectRootFromProjectManager();
+                EnsureAssetDirectories();
+                m_projectChanged = true;
+                m_projectStatusMessage.clear();
+                ImGui::CloseCurrentPopup();
+            } else {
+                m_projectStatusMessage = error;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopupModal("OpenProjectPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Open Project");
+        ImGui::Separator();
+
+        ImGui::TextUnformatted("Project Folder (containing project.json):");
+        ImGui::SetNextItemWidth(240.0f);
+        ImGui::InputText("##OpenProjectPath", m_openProjectPath, sizeof(m_openProjectPath));
+        ImGui::SameLine();
+        if (ImGui::Button("Browse...##OpenProjectBrowse", ImVec2(76.0f, 0.0f))) {
+            const std::string picked = VAEditor::BrowseForFolder("Select Project Folder", m_openProjectPath);
+            if (!picked.empty()) {
+                std::strncpy(m_openProjectPath, picked.c_str(), sizeof(m_openProjectPath) - 1);
+                m_openProjectPath[sizeof(m_openProjectPath) - 1] = '\0';
+                m_projectStatusMessage.clear();
+            }
+        }
+
+        if (!m_projectStatusMessage.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "%s", m_projectStatusMessage.c_str());
+        }
+
+        if (ImGui::Button("Open", ImVec2(120.0f, 0.0f))) {
+            std::string error;
+            if (ProjectManager::OpenProject(m_openProjectPath, error)) {
+                SyncProjectRootFromProjectManager();
+                EnsureAssetDirectories();
+                m_projectChanged = true;
+                m_projectStatusMessage.clear();
+                ImGui::CloseCurrentPopup();
+            } else {
+                m_projectStatusMessage = error;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
     }
 }
 

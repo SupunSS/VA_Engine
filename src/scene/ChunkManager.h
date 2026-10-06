@@ -11,6 +11,7 @@ public:
 
     void Update(const glm::vec3& viewerPosition, Scene& scene, PhysicsWorld& physicsWorld, float maxRenderDistance);
     void ForceReloadAll(Scene& scene, PhysicsWorld& physicsWorld);
+    void SetStreamingEnabled(bool enabled) { m_streamingEnabled = enabled; }
 private:
     struct ChunkKey {
         int x, z;
@@ -28,6 +29,7 @@ private:
     float m_chunkSize;
     int m_loadRadius; // in chunks, not world units
     int m_unloadRadius = m_loadRadius + 2;
+    bool m_streamingEnabled = true;
 
     std::unordered_set<ChunkKey, ChunkKeyHash> m_loadedChunks;
 

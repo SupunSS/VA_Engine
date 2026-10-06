@@ -53,6 +53,7 @@
 #include "rendering/AnimationStateMachineLoader.h"
 #include "audio/FootstepClipLoader.h"
 #include "scene/TerrainSystem.h"
+#include "app/PostProcess.h"
 
 namespace {
 struct WindowUserData {
@@ -102,86 +103,6 @@ glm::vec3 ComputeSunLightColor(const glm::vec3& sunDirection)
 
     const glm::vec3 kBaseSunColor(1.0f, 0.96f, 0.9f);
     return kBaseSunColor * transmittance;
-}
-
-// --- Bloom post-process framebuffers ---------------------------------------
-struct PostProcessTargets {
-    GLuint hdrFBO = 0, hdrColorTexture = 0, hdrDepthRBO = 0;
-    GLuint brightFBO = 0, brightTexture = 0;
-    GLuint pingpongFBO[2] = { 0, 0 };
-    GLuint pingpongTexture[2] = { 0, 0 };
-    int fullWidth = 0, fullHeight = 0;
-    int halfWidth = 0, halfHeight = 0;
-};
-
-void DestroyPostProcessTargets(PostProcessTargets& t)
-{
-    if (t.hdrColorTexture) glDeleteTextures(1, &t.hdrColorTexture);
-    if (t.hdrDepthRBO) glDeleteRenderbuffers(1, &t.hdrDepthRBO);
-    if (t.hdrFBO) glDeleteFramebuffers(1, &t.hdrFBO);
-    if (t.brightTexture) glDeleteTextures(1, &t.brightTexture);
-    if (t.brightFBO) glDeleteFramebuffers(1, &t.brightFBO);
-    for (int i = 0; i < 2; ++i) {
-        if (t.pingpongTexture[i]) glDeleteTextures(1, &t.pingpongTexture[i]);
-        if (t.pingpongFBO[i]) glDeleteFramebuffers(1, &t.pingpongFBO[i]);
-    }
-    t = PostProcessTargets{};
-}
-
-GLuint CreateHalfResColorTarget(GLuint& fboOut, int width, int height)
-{
-    glGenFramebuffers(1, &fboOut);
-    glBindFramebuffer(GL_FRAMEBUFFER, fboOut);
-
-    GLuint tex = 0;
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
-
-    ENGINE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
-                  "Bloom half-res framebuffer incomplete");
-
-    return tex;
-}
-
-void CreatePostProcessTargets(PostProcessTargets& t, int width, int height)
-{
-    DestroyPostProcessTargets(t);
-    t.fullWidth = std::max(1, width);
-    t.fullHeight = std::max(1, height);
-    t.halfWidth = std::max(1, width / 2);
-    t.halfHeight = std::max(1, height / 2);
-
-    glGenFramebuffers(1, &t.hdrFBO);
-    glBindFramebuffer(GL_FRAMEBUFFER, t.hdrFBO);
-
-    glGenTextures(1, &t.hdrColorTexture);
-    glBindTexture(GL_TEXTURE_2D, t.hdrColorTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, t.fullWidth, t.fullHeight, 0, GL_RGBA, GL_FLOAT, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.hdrColorTexture, 0);
-
-    glGenRenderbuffers(1, &t.hdrDepthRBO);
-    glBindRenderbuffer(GL_RENDERBUFFER, t.hdrDepthRBO);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, t.fullWidth, t.fullHeight);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, t.hdrDepthRBO);
-
-    ENGINE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
-                  "HDR scene framebuffer incomplete");
-
-    t.brightTexture = CreateHalfResColorTarget(t.brightFBO, t.halfWidth, t.halfHeight);
-    t.pingpongTexture[0] = CreateHalfResColorTarget(t.pingpongFBO[0], t.halfWidth, t.halfHeight);
-    t.pingpongTexture[1] = CreateHalfResColorTarget(t.pingpongFBO[1], t.halfWidth, t.halfHeight);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 entt::entity SpawnTestVehicle(Scene& scene, PhysicsWorld& physicsWorld, const glm::vec3& position) {
@@ -494,8 +415,11 @@ int main() {
 
     // UI Visibility Toggle Flag
     bool showUI = true;
+    bool blankWorld = false;
     bool f1WasPressed = false;
     bool showPlayControlsWindow = true;
+
+    JPH::BodyID blankFloorBodyId; // default-constructed = invalid
 
     float profileLogTimer = 0.0f;
     auto profileStart = []() { return std::chrono::high_resolution_clock::now(); };
@@ -576,6 +500,43 @@ int main() {
         characterController.SetPosition(kPlayerSpawnPosition);
         scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
         chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld, maxRenderDistance);
+    };
+
+        auto ResetWorldForProject = [&]() {
+        if (playMode) {
+            StopPlayModeKeepState();
+        }
+        ResetToInitialState(); // vehicles, test bodies, player, camera, selection
+
+        // Remove the chunk-streamed city and stop it streaming back in
+        chunkManager.ForceReloadAll(scene, physicsWorld);
+        chunkManager.SetStreamingEnabled(false);
+
+        // Remove pedestrians
+        {
+            std::vector<entt::entity> pedestrians;
+            for (auto e : scene.Registry.view<PedestrianTag>()) {
+                pedestrians.push_back(e);
+            }
+            for (auto e : pedestrians) {
+                scene.DestroyEntity(e);
+            }
+        }
+
+        // Fresh flat terrain
+        terrainSystem.Clear();
+        terrainSystem.Update(camera.Position);
+
+        // One big static floor whose top sits at y=0, matching the flat terrain.
+        // Physics only: terrain already provides the visual, and a mesh here
+        // would need models/cube.obj, which a fresh project doesn't have.
+        if (blankFloorBodyId.IsInvalid()) {
+            const glm::vec3 floorHalfExtents(1000.0f, 0.5f, 1000.0f);
+            const glm::vec3 floorCenter(0.0f, -0.5f, 0.0f);
+            blankFloorBodyId = physicsWorld.CreateBoxBody(floorCenter, floorHalfExtents, /*isStatic=*/true);
+        }
+
+        blankWorld = true;
     };
 
     WindowUserData userData{
@@ -772,6 +733,11 @@ int main() {
         deltaTime = std::clamp(deltaTime, 0.0f, kMaxDeltaTime);
 
         glfwPollEvents();
+
+        if (editorUI.ConsumeProjectChanged()) {
+            ResetWorldForProject();
+        }
+
 
         int framebufferWidth = 0;
         int framebufferHeight = 0;
@@ -1198,7 +1164,9 @@ int main() {
         scriptEngine.CallEntityUpdates(deltaTime);
 
         PedestrianSystem::Update(scene, deltaTime, viewerPosition, pedestrianSimulationDistance);
-        PedestrianSpawnSystem::Update(scene, viewerPosition, deltaTime, pedestrianSpawnConfig);
+                if (!blankWorld) {
+            PedestrianSpawnSystem::Update(scene, viewerPosition, deltaTime, pedestrianSpawnConfig);
+        }
 
         // Spatial grid rebuilt AFTER every system above that can move an
         // entity this frame (physics sync, vehicle/wheel sync, pedestrian AI,
@@ -1271,6 +1239,10 @@ int main() {
             auto& renderer = scene.Registry.get<MeshRenderer>(entity);
 
             if (!renderer.ModelRef) {
+                continue;
+            }
+
+            if (blankWorld && !playMode && entity == playerVisualEntity) {
                 continue;
             }
 
@@ -1508,6 +1480,7 @@ int main() {
             }
 
             editorUI.DrawMenuBar();
+            editorUI.DrawProjectMenu();
             editorUI.DrawSceneHierarchy(scene);
             editorUI.DrawInspector(scene, scriptEngine);
             editorUI.DrawAssetBrowser(scene);

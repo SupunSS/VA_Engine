@@ -18,6 +18,7 @@
 #include "Command.h"
 #include "../scene/Components.h"
 #include "../rendering/TerrainChunk.h"
+#include "../core/ProjectManager.h"
 
 class Texture;
 class CharacterController; // used only by pointer here — full type comes from CharacterController.h in the .cpp
@@ -63,6 +64,7 @@ struct AnimatorEditorTargetState {
     bool PreviewMode = false;
     float PreviewNormalizedTime = 0.0f;
 
+
     // Live preview viewport camera — orbit/zoom state persists per target
     // so switching tabs doesn't reset your framing each time.
     float PreviewOrbitYaw = -30.0f;
@@ -97,6 +99,22 @@ public:
     void QueueDroppedFiles(int count, const char** paths);
     void UpdatePerformanceStats(float deltaTime, int windowWidth, int windowHeight);
     void ToggleStatsOverlay();
+    void DrawProjectMenu();
+    
+        bool ConsumeProjectChanged() {
+        const bool changed = m_projectChanged;
+        m_projectChanged = false;
+        if (changed) {
+            // Old commands reference entities/terrain chunks from the previous
+            // project's world, so undoing them would touch dead handles.
+            m_commandHistory.Clear();
+            m_terrainStrokeActive = false;
+            m_terrainStrokeChunk = nullptr;
+            m_gizmoWasUsing = false;
+            SelectedEntity = entt::null;
+        }
+        return changed;
+    }
 
     void DrawMenuBar();
     void DrawStatsOverlay();
@@ -259,6 +277,16 @@ private:
     bool m_isRenamingAsset = false;
     bool m_shouldOpenDeletePopup = false;
     std::string m_assetStatusMessage;
+
+    // --- Project state -----------------------------------------------
+    char m_newProjectParentDir[256] = {};
+    char m_newProjectName[128] = {};
+    char m_openProjectPath[256] = {};
+    bool m_shouldOpenNewProjectPopup = false;
+    bool m_shouldOpenProjectPopup = false;
+    std::string m_projectStatusMessage;
+    bool m_projectChanged = false;
+    void SyncProjectRootFromProjectManager();
 
     // --- Terrain sculpting state -------------------------------------
     int m_terrainBrushType = 0; // 0=Raise, 1=Lower, 2=Smooth — matches TerrainSystem::BrushType ordering

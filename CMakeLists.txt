@@ -78,6 +78,9 @@ add_library(va_engine_core STATIC
     src/rendering/AnimationStateMachine.cpp
     src/rendering/AnimationStateMachineLoader.cpp
     src/audio/FootstepClipLoader.cpp
+    src/core/ProjectManager.cpp
+    src/editor/FileDialog.cpp
+    src/app/PostProcess.cpp
 )
 
 target_include_directories(va_engine_core PUBLIC
@@ -93,7 +96,7 @@ target_compile_definitions(va_engine_core PUBLIC GLM_ENABLE_EXPERIMENTAL)
 target_link_libraries(va_engine_core PUBLIC
     glfw glm::glm Threads::Threads glad::glad assimp::assimp EnTT::EnTT
     nlohmann_json::nlohmann_json sol2::sol2 ${LUA_LIBRARIES} imgui::imgui
-    Jolt::Jolt imguizmo::imguizmo winmm
+    Jolt::Jolt imguizmo::imguizmo winmm ole32 shell32 uuid
 )
 target_link_libraries(va_engine_core PRIVATE yaml-cpp::yaml-cpp)
 

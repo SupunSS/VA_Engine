@@ -23,6 +23,7 @@ std::string ChunkManager::GetChunkPath(int x, int z) const {
 }
 
 void ChunkManager::Update(const glm::vec3& viewerPosition, Scene& scene, PhysicsWorld& physicsWorld, float maxRenderDistance) {
+    if (!m_streamingEnabled) return;
     ChunkKey currentChunk = WorldToChunk(viewerPosition);
     bool chunkChanged = false;
 

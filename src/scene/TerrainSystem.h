@@ -42,6 +42,8 @@ public:
     float GetChunkSize() const { return m_chunkSize; }
     int GetResolution() const { return m_resolution; }
 
+    void Clear() { m_chunks.clear(); }
+
 private:
     struct ChunkKey {
         int x, z;

@@ -2,6 +2,7 @@
 #include "../engine/Config.h"
 #include <filesystem>
 #include <array>
+#include "ProjectManager.h"
 
 namespace AssetPaths {
 
@@ -49,7 +50,16 @@ void EnsureLoaded() {
 std::string Root(Category category) {
     EnsureLoaded();
     const CategoryDefault& entry = Lookup(category);
-    return GetConfig().GetString(entry.configKey, entry.defaultRoot);
+    const std::string relativeRoot = GetConfig().GetString(entry.configKey, entry.defaultRoot);
+
+    // Anchored to the active project root (ProjectManager::GetProjectRoot(),
+    // which defaults to current_path() until a project is explicitly
+    // created/opened) rather than left as a bare relative string. Resolve()
+    // below already handles an absolute root correctly, so this is the only
+    // change needed to make every asset category respect whichever project
+    // is currently open.
+    const std::filesystem::path anchoredRoot = ProjectManager::GetProjectRoot() / relativeRoot;
+    return anchoredRoot.string();
 }
 
 std::string Resolve(Category category, const std::string& relativePath) {
