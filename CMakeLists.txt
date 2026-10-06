@@ -86,6 +86,9 @@ add_library(va_engine_core STATIC
     src/app/VehicleSpawner.cpp
     src/app/PostProcess.cpp
     src/app/Window.cpp
+    src/app/PlayerSetup.cpp
+    src/app/PlayMode.cpp
+    src/app/SaveLoadHandler.cpp
 )
 
 target_include_directories(va_engine_core PUBLIC

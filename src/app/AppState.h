@@ -21,6 +21,12 @@
 #include "../rendering/FrustumRenderer.h"
 #include "../editor/EditorUI.h"
 #include "../editor/HUD.h"
+#include "../rendering/Model.h"
+#include "../rendering/Animation.h"
+#include "../rendering/Animator.h"
+#include "../rendering/AnimationStateMachine.h"
+
+struct GLFWwindow;
 
 // Plain-data state shared by the engine's update/render/UI code, grouped by
 // subsystem so each file only needs to touch the group it owns.
@@ -62,6 +68,11 @@ struct PlayState {
     // Blank-world mode (set when a project is created/opened)
     bool blankWorld = false;
     JPH::BodyID blankFloorBodyId; // default-constructed = invalid
+
+    glm::vec3 playerSpawnPosition{0.0f, 1.0f, 0.0f};
+    glm::vec3 initialCameraPosition{0.0f, 0.0f, 3.0f};
+    float initialCameraYaw = -90.0f;
+    float initialCameraPitch = 0.0f;
 };
 
 struct EditorFlags {
@@ -128,6 +139,18 @@ struct EditorState {
     std::unique_ptr<HUD> hud;
 };
 
+// Everything that makes up the player: gameplay entity, visual child entity,
+// model, animation clips, animator and state machine.
+struct PlayerState {
+    entt::entity entity = entt::null;       // gameplay entity (physics position, health, audio)
+    entt::entity visualEntity = entt::null; // child entity carrying the mesh
+    std::shared_ptr<Model> model;
+    std::shared_ptr<Animation> idleAnim;
+    std::shared_ptr<Animation> walkAnim;
+    std::shared_ptr<Animation> runAnim;
+    std::shared_ptr<Animator> animator;
+    std::shared_ptr<AnimationStateMachine> stateMachine;
+};
 struct AppState {
     FrameState frame;
     InputState input;
@@ -137,4 +160,6 @@ struct AppState {
     WorldState world;
     RenderState render;
     EditorState editorObjects;
+    PlayerState player;
+    GLFWwindow* window = nullptr;
 };

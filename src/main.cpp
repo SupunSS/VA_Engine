@@ -57,6 +57,9 @@
 #include "app/VehicleSpawner.h"
 #include "app/AppState.h"
 #include "app/Window.h"
+#include "app/PlayerSetup.h"
+#include "app/PlayMode.h"
+#include "app/SaveLoadHandler.h"
 
 
 
@@ -147,6 +150,7 @@ int main() {
     }
 
     GLFWwindow* window = CreateMainWindow();
+    app.window = window;
 
     app.editorObjects.ui = std::make_unique<EditorUI>();
     EditorUI& editorUI = *app.editorObjects.ui;
@@ -208,49 +212,18 @@ int main() {
     SpatialGrid& spatialGrid = *app.world.spatialGrid;
     PhysicsWorld& physicsWorld = *app.world.physicsWorld;
 
-    auto playerEntity = scene.CreateEntity();
-    scene.Registry.emplace<PlayerTag>(playerEntity);
-    scene.Registry.emplace<Health>(playerEntity);
-    scene.Registry.emplace<Ammo>(playerEntity);
-    scene.Registry.get<Transform>(playerEntity).Position = glm::vec3(0.0f, 1.0f, 0.0f);
+        CreatePlayer(app);
 
-    scene.Registry.emplace<MovementState>(playerEntity);
-    auto& playerFootsteps = scene.Registry.emplace<FootstepAudio>(playerEntity);
-    playerFootsteps.WalkStepClips = FootstepClipLoader::LoadNumberedSequence("sfx/Steps_floor-", 1, 21, ".wav", 3);
-    // No separate run clips — reuses the same pool for both walk and run
-    // (PickRandomFootstepClip falls back to WalkStepClips when RunStepClips
-    // is empty). Add a dedicated RunStepClips pool later if you get
-    // sprint-specific footstep audio.
-
-    auto playerVisualEntity = scene.CreateEntity();
-    auto& playerVisualTransform = scene.Registry.get<Transform>(playerVisualEntity);
-    playerVisualTransform.Parent = playerEntity;
-    playerVisualTransform.Position = glm::vec3(0.0f, 0.0f, 0.0f);
-    playerVisualTransform.Scale = glm::vec3(0.01f, 0.01f, 0.01f);
-
-    auto playerModel = SceneLoader::GetOrLoadModel("player/player.fbx");
-    scene.Registry.emplace<MeshRenderer>(playerVisualEntity, playerModel, nullptr);
-
-    auto playerIdleAnim = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Idle.fbx"));
-    auto playerWalkAnim = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Walking.fbx"));
-    auto playerRunAnim  = playerModel->LoadAnimation(AssetPaths::Resolve(AssetPaths::Category::Models, "player/Running.fbx"));
-    
-    
-    auto playerAnimator = std::make_shared<Animator>();
-    playerAnimator->PlayAnimation(playerIdleAnim);
-
-    auto playerAnimStateMachinePtr = AnimationStateMachineLoader::LoadFromFile("player.json", *playerModel);
-    ENGINE_ASSERT(playerAnimStateMachinePtr != nullptr, "Failed to load player animation state machine");
+    // Aliases so the rest of main() keeps compiling unchanged
+    entt::entity& playerEntity = app.player.entity;
+    entt::entity& playerVisualEntity = app.player.visualEntity;
+    auto& playerModel = app.player.model;
+    auto& playerIdleAnim = app.player.idleAnim;
+    auto& playerWalkAnim = app.player.walkAnim;
+    auto& playerRunAnim = app.player.runAnim;
+    auto& playerAnimator = app.player.animator;
+    auto& playerAnimStateMachinePtr = app.player.stateMachine;
     AnimationStateMachine& playerAnimStateMachine = *playerAnimStateMachinePtr;
-    playerAnimStateMachine.SetInitialState("Idle");
-
-    // Attach the player's animator to the ECS so systems that iterate
-    // AnimatorComponent (e.g. AudioSystem's event-driven footstep path)
-    // pick up the player the same way they already do pedestrians.
-    auto& playerAnimComp = scene.Registry.emplace<AnimatorComponent>(playerEntity);
-    playerAnimComp.AnimatorPtr = playerAnimator;
-    playerAnimComp.StateMachine = playerAnimStateMachinePtr;
-    playerAnimComp.SourceModel = playerModel;
 
     app.world.characterController = std::make_unique<CharacterController>(physicsWorld, glm::vec3(0.0f, 1.0f, 0.0f));
     CharacterController& characterController = *app.world.characterController;
@@ -278,6 +251,11 @@ int main() {
     const glm::vec3 kInitialCameraPosition = camera.Position;
     const float kInitialCameraYaw = camera.GetYaw();
     const float kInitialCameraPitch = camera.GetPitch();
+
+    app.play.playerSpawnPosition = kPlayerSpawnPosition;
+    app.play.initialCameraPosition = kInitialCameraPosition;
+    app.play.initialCameraYaw = kInitialCameraYaw;
+    app.play.initialCameraPitch = kInitialCameraPitch;
 
     VAPublic::IEngine* engine = VAPublic::InitializeEngine("config/engine.yaml");
     VAPublic::ConnectEngineSystems(engine, &scene, &physicsWorld, &AudioEngine::Get(), &scriptEngine, &camera);
@@ -331,116 +309,11 @@ int main() {
             std::chrono::high_resolution_clock::now() - start).count();
     };
 
-    auto DestroyAllVehicles = [&]() {
-        auto existingVehicles = scene.Registry.view<VehicleTag, VehicleComponent>();
-        std::vector<entt::entity> vehiclesToDestroy(existingVehicles.begin(), existingVehicles.end());
-        for (auto oldVehicleEntity : vehiclesToDestroy) {
-            if (scene.Registry.all_of<VehicleEngineAudio>(oldVehicleEntity)) {
-                auto& engineAudio = scene.Registry.get<VehicleEngineAudio>(oldVehicleEntity);
-                AudioEngine::Get().DestroySource(engineAudio.Handle);
-            }
-
-            auto& oldVehicleComp = scene.Registry.get<VehicleComponent>(oldVehicleEntity);
-            for (auto wheelEnt : oldVehicleComp.WheelEntities) {
-                if (wheelEnt != entt::null && scene.Registry.valid(wheelEnt)) {
-                    scene.DestroyEntity(wheelEnt);
-                }
-            }
-            scene.DestroyEntity(oldVehicleEntity);
-        }
-    };
-
-    auto ResetToInitialState = [&]() {
-        if (insideVehicle) {
-            scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
-            insideVehicle = false;
-        }
-        activeVehicleEntity = entt::null;
-
-        DestroyAllVehicles();
-
-        {
-            std::vector<entt::entity> toDestroy;
-            auto view = scene.Registry.view<RigidBody, PhysicsTestBody>();
-            for (auto entity : view) {
-                toDestroy.push_back(entity);
-            }
-            for (auto entity : toDestroy) {
-                auto& rb = scene.Registry.get<RigidBody>(entity);
-                if (!rb.BodyId.IsInvalid()) {
-                    physicsWorld.DestroyBody(rb.BodyId);
-                }
-                scene.DestroyEntity(entity);
-            }
-        }
-
-        characterController.SetPosition(kPlayerSpawnPosition);
-        scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
-        scene.Registry.get<Transform>(playerEntity).Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-
-        playerAnimStateMachine.SetInitialState("Idle");
-        playerAnimator->PlayAnimation(playerIdleAnim);
-
-        camera.Position = kInitialCameraPosition;
-        camera.SetYawPitch(kInitialCameraYaw, kInitialCameraPitch);
-
-        editorUI.SelectedEntity = entt::null;
-    };
-
-    auto StopPlayModeKeepState = [&]() {
-        playMode = false;
-        SetCursorMode(window, GLFW_CURSOR_NORMAL, false);
-        mouseLookEnabled = false;
-        mouseLookNeedsReset = true;
-    };
-
-    auto StartPlayMode = [&]() {
-        playMode = true;
-        SetCursorMode(window, GLFW_CURSOR_DISABLED, true);
-        mouseLookEnabled = false;
-        mouseLookNeedsReset = true;
-
-        characterController.SetPosition(kPlayerSpawnPosition);
-        scene.Registry.get<Transform>(playerEntity).Position = kPlayerSpawnPosition;
-        chunkManager.Update(kPlayerSpawnPosition, scene, physicsWorld, maxRenderDistance);
-    };
-
-        auto ResetWorldForProject = [&]() {
-        if (playMode) {
-            StopPlayModeKeepState();
-        }
-        ResetToInitialState(); // vehicles, test bodies, player, camera, selection
-
-        // Remove the chunk-streamed city and stop it streaming back in
-        chunkManager.ForceReloadAll(scene, physicsWorld);
-        chunkManager.SetStreamingEnabled(false);
-
-        // Remove pedestrians
-        {
-            std::vector<entt::entity> pedestrians;
-            for (auto e : scene.Registry.view<PedestrianTag>()) {
-                pedestrians.push_back(e);
-            }
-            for (auto e : pedestrians) {
-                scene.DestroyEntity(e);
-            }
-        }
-
-        // Fresh flat terrain
-        terrainSystem.Clear();
-        terrainSystem.Update(camera.Position);
-
-        // One big static floor whose top sits at y=0, matching the flat terrain.
-        // Physics only: terrain already provides the visual, and a mesh here
-        // would need models/cube.obj, which a fresh project doesn't have.
-        if (blankFloorBodyId.IsInvalid()) {
-            const glm::vec3 floorHalfExtents(1000.0f, 0.5f, 1000.0f);
-            const glm::vec3 floorCenter(0.0f, -0.5f, 0.0f);
-            blankFloorBodyId = physicsWorld.CreateBoxBody(floorCenter, floorHalfExtents, /*isStatic=*/true);
-        }
-
-        blankWorld = true;
-    };
+    auto DestroyAllVehicles = [&]() { PlayMode::DestroyAllVehicles(app); };
+    auto ResetToInitialState = [&]() { PlayMode::ResetToInitialState(app); };
+    auto StopPlayModeKeepState = [&]() { PlayMode::StopKeepState(app); };
+    auto StartPlayMode = [&]() { PlayMode::Start(app); };
+    auto ResetWorldForProject = [&]() { PlayMode::ResetWorldForProject(app); };
 
     InstallWindowCallbacks(window, app);
 
@@ -1304,106 +1177,8 @@ int main() {
 
             editorUI.DrawViewportSettings(camera, gridRenderer);
 
-            {
-                std::string requestedSlotName;
-                bool isSaveAction = false;
-                if (editorUI.DrawSaveLoadPanel(requestedSlotName, isSaveAction)) {
-                    if (isSaveAction) {
-                        SaveGameData data;
+            HandleSaveLoadPanel(app);
 
-                        auto& savePlayerTransform = scene.Registry.get<Transform>(playerEntity);
-                        data.Player.PlayerTransform.Position = savePlayerTransform.Position;
-                        data.Player.PlayerTransform.Rotation = savePlayerTransform.Rotation;
-
-                        auto& saveHealth = scene.Registry.get<Health>(playerEntity);
-                        data.Player.Health = saveHealth.Current;
-                        data.Player.MaxHealth = saveHealth.Max;
-
-                        auto& saveAmmo = scene.Registry.get<Ammo>(playerEntity);
-                        data.Player.AmmoCurrent = saveAmmo.Current;
-                        data.Player.AmmoReserve = saveAmmo.Reserve;
-
-                        data.Player.InsideVehicle = insideVehicle;
-                        data.Player.ActiveVehicleIndex = -1;
-
-                        int vehicleIndex = 0;
-                        auto saveVehicleView = scene.Registry.view<Transform, VehicleTag, VehicleComponent>();
-                        for (auto vEntity : saveVehicleView) {
-                            auto& vTransform = saveVehicleView.get<Transform>(vEntity);
-                            SavedVehicleState vs;
-                            vs.ChassisTransform.Position = vTransform.Position;
-                            vs.ChassisTransform.Rotation = vTransform.Rotation;
-                            data.Vehicles.push_back(vs);
-
-                            if (vEntity == activeVehicleEntity) {
-                                data.Player.ActiveVehicleIndex = vehicleIndex;
-                            }
-                            ++vehicleIndex;
-                        }
-
-                        SaveSystem::WriteSaveFile(requestedSlotName, data);
-                        Log::Info("Saved game to slot '{}'.", requestedSlotName);
-                    } else {
-                        SaveGameData data;
-                        if (SaveSystem::ReadSaveFile(requestedSlotName, data)) {
-                            if (insideVehicle) {
-                                scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.01f);
-                                insideVehicle = false;
-                            }
-                            activeVehicleEntity = entt::null;
-                            DestroyAllVehicles();
-
-                            characterController.SetPosition(data.Player.PlayerTransform.Position);
-                            auto& loadPlayerTransform = scene.Registry.get<Transform>(playerEntity);
-                            loadPlayerTransform.Position = data.Player.PlayerTransform.Position;
-                            loadPlayerTransform.Rotation = data.Player.PlayerTransform.Rotation;
-
-                            auto& loadHealth = scene.Registry.get<Health>(playerEntity);
-                            loadHealth.Current = data.Player.Health;
-                            loadHealth.Max = data.Player.MaxHealth;
-
-                            auto& loadAmmo = scene.Registry.get<Ammo>(playerEntity);
-                            loadAmmo.Current = data.Player.AmmoCurrent;
-                            loadAmmo.Reserve = data.Player.AmmoReserve;
-
-                            // Re-stream every loaded chunk so building/entity deltas apply
-                            chunkManager.ForceReloadAll(scene, physicsWorld);
-                            chunkManager.Update(data.Player.PlayerTransform.Position, scene, physicsWorld, maxRenderDistance);
-
-                            // Recreate vehicles at their saved transforms
-                            std::vector<entt::entity> recreatedVehicles;
-                            for (const auto& vehicleData : data.Vehicles) {
-                                entt::entity newVehicle = SpawnTestVehicle(scene, physicsWorld, vehicleData.ChassisTransform.Position);
-                                auto& vc = scene.Registry.get<VehicleComponent>(newVehicle);
-                                if (vc.Controller) {
-                                    vc.Controller->SetChassisTransform(vehicleData.ChassisTransform.Position, vehicleData.ChassisTransform.Rotation);
-                                }
-                                recreatedVehicles.push_back(newVehicle);
-                            }
-
-                            // Restore vehicle occupancy if the player was driving when they saved
-                            if (data.Player.InsideVehicle && data.Player.ActiveVehicleIndex >= 0 &&
-                                data.Player.ActiveVehicleIndex < static_cast<int>(recreatedVehicles.size())) {
-                                activeVehicleEntity = recreatedVehicles[data.Player.ActiveVehicleIndex];
-                                insideVehicle = true;
-                                scene.Registry.get<VehicleOccupant>(activeVehicleEntity).DriverEntity = playerEntity;
-                                scene.Registry.get<Transform>(playerVisualEntity).Scale = glm::vec3(0.0f);
-
-                                glm::vec3 snapPos; glm::quat snapRot;
-                                auto& vc = scene.Registry.get<VehicleComponent>(activeVehicleEntity);
-                                if (vc.Controller) {
-                                    vc.Controller->GetChassisTransform(snapPos, snapRot);
-                                    vehicleCamera.SetTarget(snapPos, snapRot, 0.0f, 0.016f);
-                                }
-                            }
-
-                            Log::Info("Loaded save slot '{}'.", requestedSlotName);
-                        } else {
-                            Log::Warn("Failed to load save slot '{}'.", requestedSlotName);
-                        }
-                    }
-                }
-            }
             editorUI.DrawCullingPanel(freezeCullingFrustum, maxRenderDistance, renderedEntityCount, culledEntityCount);
             editorUI.DrawCullingDebugOverlay(camera.GetYaw(), camera.GetPitch(), debugVehicleDepth,
                                       debugVehicleDistance, debugVehicleRadius,
