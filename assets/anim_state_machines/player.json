@@ -1,0 +1,105 @@
+{
+  "initialState": "Idle",
+  "layout": {
+    "Idle": {
+      "x": 40.0,
+      "y": 30.0
+    },
+    "Run": {
+      "x": 420.0,
+      "y": 30.0
+    },
+    "Walk": {
+      "x": 230.0,
+      "y": 30.0
+    }
+  },
+  "name": "player",
+  "states": [
+    {
+      "blendIn": 0.20000000298023224,
+      "clip": "player/Idle.fbx",
+      "name": "Idle"
+    },
+    {
+      "blendIn": 0.20000000298023224,
+      "clip": "player/Walking.fbx",
+      "events": [
+        {
+          "name": "footstep_left",
+          "time": 0.35100001096725464
+        },
+        {
+          "name": "footstep_right",
+          "time": 0.8759999871253967
+        }
+      ],
+      "name": "Walk"
+    },
+    {
+      "blendIn": 0.20000000298023224,
+      "clip": "player/Running.fbx",
+      "events": [
+        {
+          "name": "footstep_left",
+          "time": 0.3059999942779541
+        },
+        {
+          "name": "footstep_right",
+          "time": 0.8230000138282776
+        }
+      ],
+      "name": "Run"
+    }
+  ],
+  "transitions": [
+    {
+      "conditions": [
+        {
+          "comp": "equals",
+          "param": "IsMoving",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "comp": "equals",
+          "param": "IsRunning",
+          "type": "bool",
+          "value": true
+        }
+      ],
+      "from": "*",
+      "to": "Run"
+    },
+    {
+      "conditions": [
+        {
+          "comp": "equals",
+          "param": "IsMoving",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "comp": "equals",
+          "param": "IsRunning",
+          "type": "bool",
+          "value": false
+        }
+      ],
+      "from": "*",
+      "to": "Walk"
+    },
+    {
+      "conditions": [
+        {
+          "comp": "equals",
+          "param": "IsMoving",
+          "type": "bool",
+          "value": false
+        }
+      ],
+      "from": "*",
+      "to": "Idle"
+    }
+  ]
+}

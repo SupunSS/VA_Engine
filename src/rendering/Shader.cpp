@@ -56,6 +56,24 @@ void Shader::SetVec3(const std::string& name, const glm::vec3& value) const
     glUniform3fv(location, 1, glm::value_ptr(value));
 }
 
+void Shader::SetVec2(const std::string& name, const glm::vec2& value) const   // add this
+{
+    int location = glGetUniformLocation(m_programID, name.c_str());
+    glUniform2fv(location, 1, glm::value_ptr(value));
+}
+
+void Shader::SetInt(const std::string& name, int value) const
+{
+    int location = glGetUniformLocation(m_programID, name.c_str());
+    glUniform1i(location, value);
+}
+
+void Shader::SetFloat(const std::string& name, float value) const
+{
+    int location = glGetUniformLocation(m_programID, name.c_str());
+    glUniform1f(location, value);
+}
+
 unsigned int Shader::Compile(unsigned int type, const std::string& source)
 {
     unsigned int shader = glCreateShader(type);
@@ -86,8 +104,10 @@ std::string Shader::ReadFile(const std::string& path)
     return buffer.str();
 }
 
-void Shader::SetFloat(const std::string& name, float value) const
+void Shader::SetMat4Array(const std::string& name, const std::vector<glm::mat4>& matrices) const
 {
+    if (matrices.empty()) return;
     int location = glGetUniformLocation(m_programID, name.c_str());
-    glUniform1f(location, value);
+    glUniformMatrix4fv(location, static_cast<GLsizei>(matrices.size()), GL_FALSE, glm::value_ptr(matrices[0]));
 }
+

@@ -1,0 +1,47 @@
+{
+  "name": "npc_pedestrian",
+  "description": "Pedestrian NPC that walks around and interacts",
+  "components": {
+    "Transform": {
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0, 1],
+      "scale": [1, 1, 1]
+    },
+    "Model": {
+      "meshPath": "models/characters/pedestrian.gltf",
+      "materialPath": "materials/character_skin.yaml"
+    },
+    "Physics": {
+      "type": "Dynamic",
+      "mass": 80,
+      "useCharacterController": true,
+      "colliderRadius": 0.35,
+      "colliderHeight": 1.8
+    },
+    "Animation": {
+      "skeletonPath": "animations/character_skeleton.gltf",
+      "animations": {
+        "idle": "animations/char_idle.gltf",
+        "walk": "animations/char_walk.gltf",
+        "run": "animations/char_run.gltf"
+      }
+    },
+    "AI": {
+      "type": "Pedestrian",
+      "speed": 1.5,
+      "walkRadius": 30,
+      "idleTime": 3,
+      "behaviour": "patrol"
+    },
+    "Script": {
+      "mainScript": "scripts/npc_pedestrian.lua",
+      "scriptData": {
+        "personality": "friendly",
+        "interactMessage": "Hello there!"
+      }
+    },
+    "Audio": {
+      "voicePath": "audio/voice/generic_greeting.wav"
+    }
+  }
+}

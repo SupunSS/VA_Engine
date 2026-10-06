@@ -1,0 +1,20 @@
+# VA Engine configuration
+#
+# Loaded on startup via VAPublic::InitializeEngine("config/engine.yaml")
+# and by AssetPaths (src/core/AssetPaths.cpp) for asset root overrides.
+# Parsed as real YAML (see src/engine/Config.cpp) — any key not present
+# here falls back to its built-in default, so you only need to list the
+# ones you actually want to change.
+
+debug:
+  developerMode: true
+
+# Asset root overrides. Anything not listed here falls back to its
+# built-in default in src/core/AssetPaths.cpp:
+#   models: assets/models      textures: assets/textures
+#   audio: assets/audio        scripts: game/scripts
+#   prefabs: assets/prefabs    scenes: assets/scenes
+#   shaders: shaders           config: assets/config
+paths:
+  scripts: "game/scripts"
+  prefabs: "assets/prefabs"

@@ -1,0 +1,16 @@
+{
+    "roadWidth": 8.0,
+    "sidewalkWidth": 2.0,
+
+    "buildingGridSize": 2,
+    "buildingMargin": 1.0,
+    "buildingMinHeight": 6.0,
+    "buildingMaxHeight": 24.0,
+
+    "groundThickness": 10.0,
+
+    "pedestrianWalkHeight": 0.15,
+    "pedestrianMoveSpeed": 1.4,
+    "pedestriansPerChunk": 3,
+    "waypointsPerEdge": 3
+}

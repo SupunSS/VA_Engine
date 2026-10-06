@@ -1,14 +1,5 @@
 {
     "entities": [
-        { "model": "models/test.obj", "position": [-18.0, 0.0, -8.0] },
-        { "model": "models/test.obj", "position": [-14.0, 0.0, -8.0] },
-        { "model": "models/test.obj", "position": [-10.0, 0.0, -8.0] },
-        { "model": "models/test.obj", "position": [-6.0,  0.0, -8.0] },
-        { "model": "models/test.obj", "position": [-2.0,  0.0, -8.0] },
-        { "model": "models/test.obj", "position": [2.0,   0.0, -8.0] },
-        { "model": "models/test.obj", "position": [6.0,   0.0, -8.0] },
-        { "model": "models/test.obj", "position": [10.0,  0.0, -8.0] },
-        { "model": "models/test.obj", "position": [14.0,  0.0, -8.0] },
-        { "model": "models/test.obj", "position": [18.0,  0.0, -8.0] }
+        
     ]
 }

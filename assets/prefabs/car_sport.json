@@ -1,0 +1,43 @@
+{
+  "name": "car_sport",
+  "description": "Fast sports car with high acceleration",
+  "components": {
+    "Transform": {
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0, 1],
+      "scale": [1, 1, 1]
+    },
+    "Model": {
+      "meshPath": "models/vehicles/sports_car.gltf",
+      "materialPath": "materials/car_paint_red.yaml"
+    },
+    "Physics": {
+      "type": "Dynamic",
+      "mass": 1500,
+      "drag": 0.3,
+      "angularDrag": 0.05
+    },
+    "Vehicle": {
+      "wheelBase": 2.4,
+      "wheelTrack": 1.6,
+      "maxSpeed": 250,
+      "acceleration": 15,
+      "brakingForce": 20,
+      "steerSensitivity": 1.5,
+      "suspensionStiffness": 50,
+      "suspensionDamping": 5
+    },
+    "Audio": {
+      "engineSoundPath": "audio/sfx/engine_sports.wav",
+      "tireSkidSoundPath": "audio/sfx/tire_skid.wav",
+      "maxEngineVolume": 0.8
+    },
+    "Script": {
+      "mainScript": "scripts/vehicle_logic.lua",
+      "scriptData": {
+        "handlingClass": "sport",
+        "durability": 100
+      }
+    }
+  }
+}
